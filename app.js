@@ -1,708 +1,751 @@
-/* ─────────────────────────────────────────
-   KYC AUDIT AUTOMATION TOOL — app.js
-   ───────────────────────────────────────── */
+/* ── KYC AUDIT TOOL — app.js ── */
 
-// ── STATE ──
-const state = {
+const S = {
   apiKey: '',
-  uploadedFiles: {},
-  allResults: [],
+  docs: [],       // { id, name, size, file, status, result, error }
+  losLms: {},
+  filter: 'all',
+  sortKey: 'name',
+  sortDir: 1,
   charts: {},
   threshHigh: 50,
   threshMed: 25,
 };
 
-// ── PAGE NAVIGATION ──
-document.querySelectorAll('.nav-item').forEach(item => {
-  item.addEventListener('click', e => {
-    e.preventDefault();
-    const page = item.dataset.page;
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    item.classList.add('active');
-    document.getElementById('page-' + page).classList.add('active');
-    const titles = {
-      upload: 'Upload KYC Documents',
-      losdata: 'LOS / LMS Data Entry',
-      dashboard: 'Audit Dashboard',
-      reports: 'Reports & Observations',
-      settings: 'Settings',
-    };
-    document.getElementById('pageTitle').textContent = titles[page] || '';
-    if (page === 'dashboard') renderDashboard();
-    if (page === 'reports') renderReports();
+/* ── NAV ── */
+function navTo(page) {
+  ['input','dashboard','reports'].forEach(p => {
+    document.getElementById('page-' + p).style.display = p === page ? 'block' : 'none';
   });
-});
-
-// ── API KEY ──
-function saveApiKey() {
-  state.apiKey = document.getElementById('apiKeyInput').value.trim();
-  document.getElementById('apiSaveMsg').style.display = 'block';
-  updateApiStatus();
+  document.querySelectorAll('.seg button[data-page]').forEach(b => {
+    b.classList.toggle('on', b.dataset.page === page);
+  });
+  if (page === 'dashboard') renderDashboard();
+  if (page === 'reports') renderReports();
 }
 
-function updateApiStatus() {
-  const dot = document.getElementById('statusDot');
-  const txt = document.getElementById('statusText');
-  if (state.apiKey) {
-    dot.className = 'status-dot ok';
-    txt.textContent = 'API key active';
+/* ── SETTINGS ── */
+function openSettings() { document.getElementById('settingsOverlay').style.display = 'grid'; }
+function closeSettings() { document.getElementById('settingsOverlay').style.display = 'none'; }
+function saveApiKey() {
+  S.apiKey = document.getElementById('apiKeyInput').value.trim();
+  document.getElementById('apiSaveMsg').style.display = 'block';
+  const badge = document.getElementById('apiBadge');
+  if (S.apiKey) {
+    badge.textContent = '✓ API key active';
+    badge.className = 'conf-badge';
   } else {
-    dot.className = 'status-dot';
-    txt.textContent = 'Enter API key in Settings';
+    badge.textContent = 'No API key';
+    badge.className = 'conf-badge warn';
   }
 }
-
 function saveThresholds() {
-  state.threshHigh = parseInt(document.getElementById('threshHigh').value) || 50;
-  state.threshMed = parseInt(document.getElementById('threshMed').value) || 25;
-  alert('Thresholds saved.');
+  S.threshHigh = parseInt(document.getElementById('threshHigh').value) || 50;
+  S.threshMed  = parseInt(document.getElementById('threshMed').value)  || 25;
 }
 
-// ── FILE UPLOAD ──
-function triggerUpload(id) {
-  document.getElementById('file-' + id).click();
-}
+/* ── DROPZONE ── */
+function dzOver(e)  { e.preventDefault(); document.getElementById('dropzone').classList.add('over'); }
+function dzLeave()  { document.getElementById('dropzone').classList.remove('over'); }
+function dzDrop(e)  { e.preventDefault(); dzLeave(); addFiles(e.dataTransfer.files); }
 
-function fileSelected(id, input) {
-  if (!input.files[0]) return;
-  const f = input.files[0];
-  state.uploadedFiles[id] = f;
-  const subEl = document.getElementById('sub-' + id);
-  const badgeEl = document.getElementById('badge-' + id);
-  const cardEl = document.getElementById('card-' + id);
-  if (subEl) subEl.textContent = '✓ ' + f.name;
-  if (badgeEl) { badgeEl.textContent = 'Ready'; badgeEl.className = 'uc-badge ready'; }
-  if (cardEl) cardEl.classList.add('uploaded');
+function addFiles(files) {
+  Array.from(files).forEach(f => {
+    S.docs.push({ id: uid(), name: f.name, size: f.size, file: f, status: 'queued', result: null, error: null });
+  });
+  renderFileList();
   checkRunEligible();
 }
 
-function checkRunEligible() {
-  const hasCore = state.uploadedFiles['aadhaar'] && state.uploadedFiles['pan'];
-  document.getElementById('runBtn').disabled = !hasCore;
+function removeDoc(id) {
+  S.docs = S.docs.filter(d => d.id !== id);
+  renderFileList();
+  checkRunEligible();
 }
 
-// ── FILE → BASE64 ──
-function fileToBase64(file) {
+function renderFileList() {
+  const el = document.getElementById('fileList');
+  const cnt = document.getElementById('fileCount');
+  cnt.textContent = S.docs.length + ' file' + (S.docs.length !== 1 ? 's' : '');
+  if (!S.docs.length) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = S.docs.map(d => `
+    <div class="file-row">
+      <div class="file-icon">${iconFor(d.name)}</div>
+      <div class="file-meta">
+        <div class="file-name">${esc(d.name)}</div>
+        <div class="file-sub">${fmtSize(d.size)}</div>
+      </div>
+      <button class="x-btn" onclick="removeDoc('${d.id}')" title="Remove">✕</button>
+    </div>`).join('');
+}
+
+function checkRunEligible() {
+  const btn = document.getElementById('runBtn');
+  const meta = document.getElementById('runMeta');
+  btn.disabled = S.docs.length === 0;
+  meta.textContent = S.docs.length
+    ? S.docs.length + ' file' + (S.docs.length > 1 ? 's' : '') + ' ready to audit.'
+    : 'Upload at least 1 document to begin.';
+  if (S.docs.length) document.getElementById('wipeBtn').style.display = 'inline-flex';
+}
+
+/* ── DEMO FILES ── */
+function loadDemo() {
+  const names = [
+    'Ramesh_Kumar_Aadhaar.jpg','Ramesh_Kumar_PAN.jpg',
+    'Sunita_Devi_Aadhaar.jpg','Priya_Sharma_PAN.jpg',
+    'Vikram_Singh_Agreement.pdf'
+  ];
+  const sizes = [245000, 180000, 210000, 175000, 340000];
+  S.docs = names.map((name, i) => ({
+    id: uid(), name, size: sizes[i], file: null,
+    status: 'queued', result: null, error: null, isDemo: true
+  }));
+  renderFileList();
+  checkRunEligible();
+}
+
+/* ── LOS/LMS ── */
+function getLOSLMS() {
+  const ids = ['los_name','lms_name','los_dob','lms_dob','los_pan','lms_pan',
+               'los_gender','lms_gender','los_address','lms_address','los_pin','lms_risk'];
+  const d = {};
+  ids.forEach(id => { const el = document.getElementById(id); if (el && el.value.trim()) d[id] = el.value.trim(); });
+  return d;
+}
+
+/* ── HELPERS ── */
+function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtSize(b) { return b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.round(b/1024)+' KB'; }
+function iconFor(name) { return /\.pdf$/i.test(name) ? '📄' : /\.(jpg|jpeg|png|webp)$/i.test(name) ? '🖼' : '📁'; }
+function formatKey(k) { return k.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase()); }
+
+async function fileToBase64(file) {
   return new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(r.result.split(',')[1]);
-    r.onerror = () => rej(new Error('File read failed'));
+    r.onerror = rej;
     r.readAsDataURL(file);
   });
 }
 
-// ── LOS/LMS DATA ──
-function getLOSLMSData() {
-  const ids = [
-    'los_name','los_dob','los_pan','los_aadhaar4','los_gender','los_address','los_permaddress','los_pin','los_phone',
-    'lms_name','lms_dob','lms_pan','lms_mobile','lms_gender','lms_address','lms_permaddress','lms_risk','lms_branch','lms_income',
-    'los_coname','los_copan','los_codob','los_cogender','los_copin','los_coaddress',
-    'lms_coname','lms_codob','lms_cogender','lms_coaddress',
-  ];
-  const data = {};
-  ids.forEach(id => {
-    const el = document.getElementById(id);
-    if (el && el.value.trim()) data[id] = el.value.trim();
-  });
-  return data;
-}
-
-// ── PROGRESS ──
-const STEPS = [
-  'Reading documents',
-  'Extracting fields',
-  'Running KYC checklist',
-  'Cross-checking LOS/LMS',
-  'Analysing business photo',
-  'Generating observations',
-  'Compiling report',
-];
-
-function setProgress(pct, label, doneSteps) {
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('progressPct').textContent = pct + '%';
-  document.getElementById('progressLabel').textContent = label;
-  const stepsEl = document.getElementById('progressSteps');
-  stepsEl.innerHTML = STEPS.map((s, i) => {
-    let cls = 'p-step';
-    if (i < doneSteps) cls += ' done';
-    else if (i === doneSteps) cls += ' active';
-    return `<span class="${cls}">${i < doneSteps ? '✓' : ''} ${s}</span>`;
-  }).join('');
-}
-
-// ── BUILD AI PROMPT ──
-async function buildMessages(losLms, fileName) {
+/* ── BUILD PROMPT ── */
+async function buildMessages(doc, losLms) {
   const content = [];
   const docLabels = {
-    aadhaar: 'Applicant Aadhaar Card',
-    pan: 'Applicant PAN Card',
-    coapplaadhaar: 'Co-Applicant Aadhaar Card',
-    coapplpan: 'Co-Applicant PAN Card',
-    photo: 'Customer Business Visit Photo',
-    agreement: 'Loan Agreement / Key Facts Statement',
-    gst: 'GST / MSME / Udyam Certificate',
-    bank: 'Bank Statement',
+    aadhaar:'Aadhaar Card', pan:'PAN Card', photo:'Business Visit Photo',
+    agreement:'Loan Agreement', gst:'GST/Udyam Certificate', bank:'Bank Statement'
   };
 
-  for (const [key, file] of Object.entries(state.uploadedFiles)) {
+  if (doc.file && !doc.isDemo) {
     try {
-      const b64 = await fileToBase64(file);
-      const mt = file.type.includes('pdf') ? 'application/pdf' : (file.type || 'image/jpeg');
+      const b64 = await fileToBase64(doc.file);
+      const mt = doc.file.type.includes('pdf') ? 'application/pdf' : (doc.file.type || 'image/jpeg');
+      // guess doc type from filename
+      const fn = doc.name.toLowerCase();
+      const label = fn.includes('aadhaar') || fn.includes('aadhar') ? 'Aadhaar Card'
+        : fn.includes('pan') ? 'PAN Card'
+        : fn.includes('photo') || fn.includes('shop') || fn.includes('biz') ? 'Business Visit Photo'
+        : fn.includes('agree') || fn.includes('kfs') ? 'Loan Agreement'
+        : fn.includes('gst') || fn.includes('udyam') || fn.includes('msme') ? 'GST/Udyam Certificate'
+        : fn.includes('bank') ? 'Bank Statement'
+        : 'KYC Document';
       if (mt === 'application/pdf') {
-        content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 }, title: docLabels[key] || key });
+        content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:b64 }, title:label });
       } else {
-        content.push({ type: 'image', source: { type: 'base64', media_type: mt, data: b64 } });
-        content.push({ type: 'text', text: `[Above image is: ${docLabels[key] || key}]` });
+        content.push({ type:'image', source:{ type:'base64', media_type:mt, data:b64 } });
+        content.push({ type:'text', text:`[Above image is: ${label}]` });
       }
-    } catch(e) { console.warn('Could not process file:', key, e); }
+    } catch(e) { /* skip unreadable file */ }
   }
 
-  const losText = Object.keys(losLms).length > 0
-    ? Object.entries(losLms).map(([k,v]) => `${k}: ${v}`).join('\n')
-    : 'No LOS/LMS data provided by user.';
+  const losText = Object.keys(losLms).length
+    ? Object.entries(losLms).map(([k,v])=>`${k}: ${v}`).join('\n')
+    : 'No LOS/LMS data provided.';
 
-  content.push({ type: 'text', text: `
-You are a senior KYC auditor at a financial institution auditing a loan file. You have been given documents for applicant file: "${fileName}".
+  const isDemo = doc.isDemo;
+  const demoNote = isDemo ? `
+NOTE: This is a DEMO run. No actual document was uploaded. Generate realistic but synthetic KYC audit results for an Indian loan applicant named "${doc.name.replace(/\.[^.]+$/,'').replace(/_/g,' ')}". Make most checks PASS but introduce 2-3 realistic failures to demonstrate the tool.` : '';
 
-=== LOS / LMS DATA ===
+  content.push({ type:'text', text:`
+You are a senior KYC auditor at an Indian financial institution. File: "${doc.name}".${demoNote}
+
+LOS/LMS DATA:
 ${losText}
 
-=== YOUR TASK ===
+YOUR TASKS:
 
-STEP 1 — FIELD EXTRACTION
-Extract the following from each document you can read. Handle Hindi, Tamil, Telugu, Kannada or any regional language text by translating to English.
-From Aadhaar: Name, Father's Name, Date of Birth, Aadhaar Number (mask all but last 4), Gender, Full Address, PIN Code.
-From PAN: Name, Date of Birth, Father's Name, PAN Number, 4th character of PAN.
-From GST/Udyam/MSME: Business Name, Registration Number, Business Address, Business Type.
-From Agreement/KFS: Borrower Name, Loan Amount, Date.
+1. EXTRACT fields from every document (handle Hindi, Tamil, Telugu, Kannada by translating to English):
+   From Aadhaar: Name, Father's Name, DOB, Aadhaar Number (mask first 8 digits), Gender, Address, PIN Code
+   From PAN: Name, Father's Name, DOB, PAN Number, 4th character of PAN
+   From GST/Udyam: Business Name, Registration No., Address, Business Type
+   From Agreement/KFS: Borrower Name, Loan Amount, Date
 
-STEP 2 — CHECKLIST (answer each: PASS / FAIL / CANNOT_VERIFY + reason)
+2. RUN CHECKLIST — answer each as PASS / FAIL / CANNOT_VERIFY with a reason:
 
-Applicant checks:
-A1. Has applicant provided a valid Aadhaar? (format: 12 digits)
-A2. Does applicant have a PAN Card?
-A3. Is the 4th character of applicant's PAN the letter "P"? (indicates individual)
-A4. Is the applicant photograph consistent across PAN and Aadhaar? (visual check)
-A5. Is PAN format valid? (pattern: 5 letters, 4 digits, 1 letter — e.g. ABCDE1234F)
-A6. Is Date of Birth consistent across PAN and Aadhaar?
-A7. Is applicant age between 20 and 60 years? (calculate from DOB)
-A8. Are permanent and correspondence addresses same and matching Aadhaar address?
-A9. Is name consistent across all provided documents?
-A10. Is gender consistent across all provided documents?
-A11. Does any address PIN code start with digit 9?
-A12. If co-applicant PIN is provided, does it match applicant PIN?
-A13. Is name in documents matching name in LOS?
-A14. Is name in documents matching name in LMS?
-A15. Is DOB in documents matching DOB in LOS and LMS?
-A16. Is PAN in documents matching PAN in LOS and LMS?
-A17. Is gender in documents matching gender in LOS and LMS?
+Applicant:
+A1. Valid Aadhaar provided? (12-digit format)
+A2. PAN Card provided?
+A3. 4th character of PAN is "P"? (confirms individual)
+A4. Photograph consistent across PAN and Aadhaar?
+A5. PAN format valid? (5 letters + 4 digits + 1 letter)
+A6. Date of Birth consistent across PAN and Aadhaar?
+A7. Applicant age between 20 and 60 years?
+A8. Permanent and correspondence addresses same and match Aadhaar?
+A9. Name consistent across all documents?
+A10. Gender consistent across all documents?
+A11. Any address PIN code starts with digit 9?
+A12. Co-applicant PIN matches applicant PIN?
+A13. Name in documents matches LOS?
+A14. Name in documents matches LMS?
+A15. DOB consistent across LOS and LMS?
+A16. PAN in documents matches LOS/LMS?
+A17. Gender consistent across LOS and LMS?
 
-Co-applicant checks (only if co-applicant documents are provided):
-C1. Has co-applicant provided a valid Aadhaar?
-C2. Does co-applicant have a PAN Card?
-C3. Is the 4th character of co-applicant PAN "P"?
-C4. Is co-applicant photograph consistent across their PAN and Aadhaar?
-C5. Is co-applicant PAN format valid?
-C6. Is co-applicant Date of Birth consistent across PAN and Aadhaar?
-C7. Is co-applicant age between 20 and 60 years?
-C8. Is co-applicant name consistent across all documents?
-C9. Is co-applicant gender consistent across documents and LOS/LMS?
-C10. Is co-applicant address in LOS matching LMS?
+Co-applicant (if documents provided):
+C1. Valid Aadhaar provided?
+C2. PAN Card provided?
+C3. 4th character of co-applicant PAN is "P"?
+C4. Co-applicant photograph consistent across documents?
+C5. Co-applicant PAN format valid?
+C6. Co-applicant DOB consistent across PAN and Aadhaar?
+C7. Co-applicant age between 20 and 60 years?
+C8. Co-applicant name consistent across all documents?
+C9. Co-applicant gender consistent with LOS/LMS?
+C10. Co-applicant address consistent across LOS and LMS?
 
-Business photo checks (only if business photo provided):
+Business photo (if provided):
 P1. What type of business is visible?
-P2. List all items / inventory visible in the photo.
-P3. Provide approximate business valuation range in INR based on visible assets, stock, fixtures, and typical market rates for this type of business.
+P2. List all items/inventory visible.
+P3. Approximate business valuation in INR based on visible assets.
 
-STEP 3 — RISK RATING
-For each FAIL, assign risk:
-- HIGH: Identity mismatch (name/DOB/PAN/Aadhaar), invalid document, age out of range, PIN starts with 9
-- MEDIUM: Address inconsistency, gender mismatch, LOS/LMS data mismatch
-- LOW: Optional document missing, minor formatting issue, cannot verify due to image quality
+3. RISK per FAIL:
+   HIGH: Identity mismatch, invalid document format, age violation, PIN starting with 9
+   MEDIUM: Address/DOB/gender inconsistency, LOS-LMS mismatch
+   LOW: Optional field missing, image quality issue
 
-STEP 4 — AUDIT OBSERVATIONS
-If more than 50% of applicable checks FAIL, generate formal audit observations. Each observation must be a clear, professional sentence stating what was found, which documents are affected, and the risk implication.
+4. OBSERVATIONS: If >50% of applicable checks FAIL, write formal audit observations.
 
-=== RESPONSE FORMAT ===
-Respond ONLY with valid JSON. No markdown, no backticks, no extra text before or after the JSON.
-
+Respond ONLY with valid JSON — no markdown, no backticks:
 {
-  "fileName": "${fileName}",
+  "fileName": "${doc.name}",
   "extractedData": {
-    "applicant": {
-      "name": "",
-      "fatherName": "",
-      "dob": "",
-      "pan": "",
-      "pan4thChar": "",
-      "aadhaarLast4": "",
-      "gender": "",
-      "address": "",
-      "pinCode": "",
-      "age": ""
-    },
-    "coApplicant": {
-      "name": "",
-      "dob": "",
-      "pan": "",
-      "gender": "",
-      "address": "",
-      "pinCode": ""
-    },
-    "business": {
-      "name": "",
-      "gstNumber": "",
-      "address": ""
-    }
+    "applicant": { "name":"","fatherName":"","dob":"","pan":"","pan4thChar":"","aadhaarLast4":"","gender":"","address":"","pinCode":"","age":"" },
+    "coApplicant": { "name":"","dob":"","pan":"","gender":"","address":"","pinCode":"" },
+    "business": { "name":"","registrationNo":"","address":"","type":"" }
   },
   "checkResults": [
-    {
-      "id": "A1",
-      "description": "Has applicant provided a valid Aadhaar?",
-      "result": "PASS",
-      "reason": "Aadhaar card found, 12-digit number visible",
-      "risk": "NA"
-    }
+    { "id":"A1","description":"Valid Aadhaar provided?","result":"PASS","reason":"12-digit Aadhaar visible","risk":"NA" }
   ],
-  "businessPhoto": {
-    "businessType": "",
-    "items": [],
-    "valuationMin": 0,
-    "valuationMax": 0,
-    "currency": "INR",
-    "notes": ""
-  },
-  "summary": {
-    "totalChecks": 0,
-    "passed": 0,
-    "failed": 0,
-    "cannotVerify": 0,
-    "highRisk": 0,
-    "mediumRisk": 0,
-    "lowRisk": 0,
-    "passRate": 0
-  },
+  "businessPhoto": { "businessType":"","items":[],"valuationMin":0,"valuationMax":0,"notes":"" },
+  "summary": { "totalChecks":0,"passed":0,"failed":0,"cannotVerify":0,"highRisk":0,"mediumRisk":0,"lowRisk":0,"passRate":0 },
   "auditObservations": []
-}
-` });
+}` });
 
-  return [{ role: 'user', content }];
+  return [{ role:'user', content }];
 }
 
-// ── RUN AUDIT ──
-async function runAudit() {
-  if (!state.apiKey) {
-    alert('Please enter your Anthropic API key in Settings first.');
-    return;
-  }
-  const fileName = document.getElementById('fileNameInput').value.trim() || ('FILE_' + (state.allResults.length + 1));
-  const losLms = getLOSLMSData();
+/* ── RUN ALL ── */
+async function runAll() {
+  if (!S.apiKey) { showRunError('Please enter your Anthropic API key in Settings first.'); return; }
+  if (!S.docs.length) { showRunError('Upload at least one document.'); return; }
+  hideRunError();
+
+  const concurrency = Math.max(1, Math.min(5, parseInt(document.getElementById('concurrency').value) || 2));
+  const losLms = getLOSLMS();
+
+  // reset all docs
+  S.docs.forEach(d => { d.status = 'queued'; d.result = null; d.error = null; });
 
   document.getElementById('runBtn').disabled = true;
-  document.getElementById('runBtnText').textContent = '⏳ Analysing...';
-  document.getElementById('progressSection').style.display = 'block';
-  setProgress(5, 'Reading uploaded documents...', 0);
+  document.getElementById('runBtn').innerHTML = '<span class="spinner"></span> Running...';
+  document.getElementById('navDash').disabled = false;
+  document.getElementById('navReports').disabled = false;
 
-  try {
-    setProgress(20, 'Preparing documents for AI...', 1);
-    const messages = await buildMessages(losLms, fileName);
+  navTo('dashboard');
 
-    setProgress(40, 'AI is extracting fields and running checklist...', 2);
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': state.apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4000,
-        messages,
-      }),
-    });
+  // process in batches
+  const queue = S.docs.map((d, i) => i);
+  const workers = Array.from({ length: concurrency }, () => processNext(queue, losLms));
+  await Promise.all(workers);
 
-    setProgress(70, 'Cross-checking LOS/LMS data...', 3);
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error?.message || 'API error ' + response.status);
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('runBtn').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run KYC Audit';
+  renderDashboard();
+}
+
+async function processNext(queue, losLms) {
+  while (queue.length) {
+    const idx = queue.shift();
+    const doc = S.docs[idx];
+    if (!doc) continue;
+    doc.status = 'running';
+    renderBulkTable();
+    try {
+      const messages = await buildMessages(doc, losLms);
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'x-api-key': S.apiKey,
+          'anthropic-version':'2023-06-01',
+          'anthropic-dangerous-direct-browser-access':'true',
+        },
+        body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:4000, messages }),
+      });
+      if (!resp.ok) { const e = await resp.json(); throw new Error(e.error?.message || 'API error ' + resp.status); }
+      const data = await resp.json();
+      const raw = (data.content||[]).map(b=>b.text||'').join('').replace(/```json|```/g,'').trim();
+      doc.result = JSON.parse(raw);
+      doc.status = 'done';
+    } catch(e) {
+      doc.error = e.message;
+      doc.status = 'error';
     }
-
-    const data = await response.json();
-    setProgress(85, 'Generating observations and risk ratings...', 5);
-
-    const rawText = (data.content || []).map(b => b.text || '').join('');
-    const clean = rawText.replace(/```json|```/g, '').trim();
-    const result = JSON.parse(clean);
-
-    setProgress(100, 'Audit complete!', 7);
-    state.allResults.push(result);
-    updateSidebarStats();
-
-    setTimeout(() => {
-      document.getElementById('progressSection').style.display = 'none';
-      document.getElementById('runBtn').disabled = false;
-      document.getElementById('runBtnText').textContent = '▶ Run AI Audit';
-      // navigate to reports
-      document.querySelector('[data-page="reports"]').click();
-    }, 800);
-
-  } catch(e) {
-    setProgress(0, '✗ Error: ' + e.message, 0);
-    document.getElementById('runBtn').disabled = false;
-    document.getElementById('runBtnText').textContent = '▶ Run AI Audit';
-    console.error(e);
+    renderBulkTable();
+    updateDashHero();
   }
 }
 
-// ── SIDEBAR STATS ──
-function updateSidebarStats() {
-  document.getElementById('ssStat1').textContent = state.allResults.length;
-  const totalChecks = state.allResults.reduce((a,r) => a + (r.summary?.totalChecks||0), 0);
-  const totalHigh = state.allResults.reduce((a,r) => a + (r.summary?.highRisk||0), 0);
-  document.getElementById('ssStat2').textContent = totalChecks;
-  document.getElementById('ssStat3').textContent = totalHigh;
-}
+function showRunError(msg) { const el = document.getElementById('runError'); el.textContent = msg; el.style.display = 'block'; }
+function hideRunError() { document.getElementById('runError').style.display = 'none'; }
 
-// ── DASHBOARD ──
+/* ── DASHBOARD ── */
 function renderDashboard() {
-  if (state.allResults.length === 0) {
-    document.getElementById('dashEmpty').style.display = 'block';
-    document.getElementById('dashContent').style.display = 'none';
-    return;
+  const done = S.docs.filter(d => d.status === 'done' && d.result);
+  const total = S.docs.length;
+  const running = S.docs.filter(d => d.status === 'running').length;
+
+  // lede
+  if (running) {
+    document.getElementById('dashLede').textContent = `Processing ${running} file${running>1?'s':''} — results update in real time.`;
+  } else {
+    document.getElementById('dashLede').textContent = `${done.length} of ${total} files processed successfully.`;
   }
-  document.getElementById('dashEmpty').style.display = 'none';
-  document.getElementById('dashContent').style.display = 'block';
 
-  const R = state.allResults;
-  const totFiles = R.length;
-  const totChecks = R.reduce((a,r) => a + (r.summary?.totalChecks||0), 0);
-  const totPass = R.reduce((a,r) => a + (r.summary?.passed||0), 0);
-  const totFail = R.reduce((a,r) => a + (r.summary?.failed||0), 0);
-  const totHigh = R.reduce((a,r) => a + (r.summary?.highRisk||0), 0);
-  const totMed = R.reduce((a,r) => a + (r.summary?.mediumRisk||0), 0);
-  const totLow = R.reduce((a,r) => a + (r.summary?.lowRisk||0), 0);
-  const passRate = totChecks > 0 ? Math.round((totPass/totChecks)*100) : 0;
+  updateDashHero();
+  renderPassFailCards();
+  renderCharts();
+  renderBulkTable();
+  updateFilterCounts();
+}
 
-  document.getElementById('metricsRow').innerHTML = [
-    { label: 'Files Audited', val: totFiles, cls: 'blue' },
-    { label: 'Total Checks', val: totChecks, cls: '' },
-    { label: 'Passed', val: totPass, cls: 'green' },
-    { label: 'Failed', val: totFail, cls: 'red' },
-    { label: 'Pass Rate', val: passRate + '%', cls: passRate >= 70 ? 'green' : passRate >= 50 ? 'amber' : 'red' },
-    { label: 'High Risk', val: totHigh, cls: 'red' },
-    { label: 'Medium Risk', val: totMed, cls: 'amber' },
-    { label: 'Low Risk', val: totLow, cls: 'green' },
-  ].map(m => `<div class="metric-card"><div class="mc-label">${m.label}</div><div class="mc-val ${m.cls}">${m.val}</div></div>`).join('');
+function updateDashHero() {
+  const done = S.docs.filter(d => d.status === 'done' && d.result);
+  const total = S.docs.length;
+  const totalChecks = done.reduce((a,d) => a + (d.result?.summary?.totalChecks||0), 0);
+  const totalPass = done.reduce((a,d) => a + (d.result?.summary?.passed||0), 0);
+  const totalFail = done.reduce((a,d) => a + (d.result?.summary?.failed||0), 0);
+  const totalHigh = done.reduce((a,d) => a + (d.result?.summary?.highRisk||0), 0);
+  const totalMed  = done.reduce((a,d) => a + (d.result?.summary?.mediumRisk||0), 0);
+  const totalLow  = done.reduce((a,d) => a + (d.result?.summary?.lowRisk||0), 0);
 
-  // Charts
-  if (state.charts.passFailChart) state.charts.passFailChart.destroy();
-  if (state.charts.riskChart) state.charts.riskChart.destroy();
-  if (state.charts.trendChart) state.charts.trendChart.destroy();
+  // count files that fully passed (0 failures)
+  const filesPassed = done.filter(d => (d.result?.summary?.failed||0) === 0).length;
+  const pct = total > 0 ? Math.round((done.length / total) * 100) : 0;
 
-  state.charts.passFailChart = new Chart(document.getElementById('passFailChart'), {
-    type: 'bar',
-    data: {
-      labels: R.map(r => r.fileName || 'File'),
-      datasets: [
-        { label: 'Pass', data: R.map(r => r.summary?.passed||0), backgroundColor: '#16a34a' },
-        { label: 'Fail', data: R.map(r => r.summary?.failed||0), backgroundColor: '#dc2626' },
-        { label: 'Cannot Verify', data: R.map(r => r.summary?.cannotVerify||0), backgroundColor: '#4338ca' },
-      ],
+  document.getElementById('heroPass').textContent = filesPassed;
+  document.getElementById('heroTotal').textContent = total;
+  document.getElementById('heroSub').textContent = `· ${done.length} audited · ${total - done.length} pending`;
+  document.getElementById('heroProg').style.width = pct + '%';
+  document.getElementById('heroProgLabel').textContent = pct + '%';
+
+  const bandTotal = totalHigh + totalMed + totalLow || 1;
+  document.getElementById('heroBars').innerHTML = [
+    { label:'High risk', color:'#C04646', count:totalHigh },
+    { label:'Medium risk', color:'#C28A1B', count:totalMed },
+    { label:'Low risk', color:'#2E9461', count:totalLow },
+    { label:'Passed checks', color:'#1E4FE0', count:totalPass },
+  ].map(b => `
+    <div class="band-bar-row">
+      <div class="band-bar-label"><div class="band-dot" style="background:${b.color}"></div>${b.label}</div>
+      <div class="band-bar-track"><div class="band-bar-fill" style="background:${b.color};width:${Math.round(b.count/(bandTotal)*100)}%"></div></div>
+      <div class="band-bar-count" style="color:${b.color}">${b.count}</div>
+    </div>`).join('');
+}
+
+function renderPassFailCards() {
+  const done = S.docs.filter(d => d.status === 'done' && d.result);
+  const totalChecks = done.reduce((a,d) => a + (d.result?.summary?.totalChecks||0), 0);
+  const totalPass   = done.reduce((a,d) => a + (d.result?.summary?.passed||0), 0);
+  const totalFail   = done.reduce((a,d) => a + (d.result?.summary?.failed||0), 0);
+  const totalHigh   = done.reduce((a,d) => a + (d.result?.summary?.highRisk||0), 0);
+  const totalMed    = done.reduce((a,d) => a + (d.result?.summary?.mediumRisk||0), 0);
+  const passRate    = totalChecks > 0 ? Math.round((totalPass/totalChecks)*100) : 0;
+
+  document.getElementById('passfailCards').innerHTML = `
+    <div class="pf-card pf-meta"><div class="pf-num">${S.docs.length}</div><div class="pf-label">Total files</div><div class="pf-sub">${done.length} completed</div></div>
+    <div class="pf-card pf-meta"><div class="pf-num">${totalChecks}</div><div class="pf-label">Total checks run</div><div class="pf-sub">across all files</div></div>
+    <div class="pf-card pf-pass"><div class="pf-num">${totalPass}</div><div class="pf-label">Checks passed</div><div class="pf-sub">${passRate}% pass rate</div></div>
+    <div class="pf-card pf-fail"><div class="pf-num">${totalFail}</div><div class="pf-label">Checks failed</div><div class="pf-sub">${100-passRate}% fail rate</div></div>
+    <div class="pf-card pf-high"><div class="pf-num">${totalHigh}</div><div class="pf-label">High risk obs.</div><div class="pf-sub">${totalMed} medium · ${done.reduce((a,d)=>a+(d.result?.summary?.lowRisk||0),0)} low</div></div>`;
+}
+
+function renderCharts() {
+  const done = S.docs.filter(d => d.status === 'done' && d.result);
+  if (!done.length) return;
+
+  if (S.charts.pf) S.charts.pf.destroy();
+  if (S.charts.risk) S.charts.risk.destroy();
+
+  const labels = done.map(d => d.result.fileName || d.name).map(n => n.length > 14 ? n.slice(0,12)+'…' : n);
+  S.charts.pf = new Chart(document.getElementById('passFailChart'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        { label:'Pass', data:done.map(d=>d.result.summary?.passed||0), backgroundColor:'#2E9461' },
+        { label:'Fail', data:done.map(d=>d.result.summary?.failed||0), backgroundColor:'#C04646' },
+        { label:"Can't verify", data:done.map(d=>d.result.summary?.cannotVerify||0), backgroundColor:'#9AA3B2' },
+      ]
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#9aa3b0', font: { size: 10 } }, grid: { color: '#2a2f3a' } },
-        y: { ticks: { color: '#9aa3b0', font: { size: 10 } }, grid: { color: '#2a2f3a' } },
-      },
-    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ labels:{ font:{size:11}, boxWidth:10 } } },
+      scales:{
+        x:{ ticks:{ font:{size:10}, color:'#6B7385' }, grid:{ color:'#EEF0F4' } },
+        y:{ ticks:{ font:{size:10}, color:'#6B7385' }, grid:{ color:'#EEF0F4' } }
+      }
+    }
   });
 
-  state.charts.riskChart = new Chart(document.getElementById('riskChart'), {
-    type: 'doughnut',
-    data: {
-      labels: ['High Risk', 'Medium Risk', 'Low Risk'],
-      datasets: [{ data: [totHigh, totMed, totLow], backgroundColor: ['#dc2626','#d97706','#16a34a'], borderWidth: 0 }],
+  const high = done.reduce((a,d)=>a+(d.result.summary?.highRisk||0),0);
+  const med  = done.reduce((a,d)=>a+(d.result.summary?.mediumRisk||0),0);
+  const low  = done.reduce((a,d)=>a+(d.result.summary?.lowRisk||0),0);
+  S.charts.risk = new Chart(document.getElementById('riskChart'), {
+    type:'doughnut',
+    data:{
+      labels:['High risk','Medium risk','Low risk'],
+      datasets:[{ data:[high,med,low], backgroundColor:['#C04646','#C28A1B','#2E9461'], borderWidth:0 }]
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom', labels: { color: '#9aa3b0', font: { size: 11 }, boxWidth: 12 } } },
-    },
-  });
-
-  state.charts.trendChart = new Chart(document.getElementById('trendChart'), {
-    type: 'line',
-    data: {
-      labels: R.map((r,i) => r.fileName || ('File '+(i+1))),
-      datasets: [{
-        label: 'Pass Rate %',
-        data: R.map(r => r.summary?.passRate || (r.summary?.totalChecks > 0 ? Math.round((r.summary.passed/r.summary.totalChecks)*100) : 0)),
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59,130,246,0.1)',
-        fill: true,
-        tension: 0.3,
-        pointBackgroundColor: '#3b82f6',
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#9aa3b0', font: { size: 10 } }, grid: { color: '#2a2f3a' } },
-        y: { min: 0, max: 100, ticks: { color: '#9aa3b0', font: { size: 10 }, callback: v => v + '%' }, grid: { color: '#2a2f3a' } },
-      },
-    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{ font:{size:11}, boxWidth:10 } } }
+    }
   });
 }
 
-// ── REPORTS ──
-function renderReports() {
-  if (state.allResults.length === 0) {
-    document.getElementById('reportsEmpty').style.display = 'block';
-    document.getElementById('reportsContent').style.display = 'none';
-    return;
-  }
-  document.getElementById('reportsEmpty').style.display = 'none';
-  document.getElementById('reportsContent').style.display = 'block';
+/* ── BULK TABLE ── */
+let currentFilter = 'all';
+let searchQuery = '';
 
-  document.getElementById('reportsList').innerHTML = state.allResults.map((r, idx) => buildReportCard(r, idx)).join('');
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('#filterSeg button').forEach(b => b.classList.toggle('on', b.dataset.filter === f));
+  renderBulkTable();
+}
+function filterTable() { searchQuery = document.getElementById('searchInput').value.toLowerCase(); renderBulkTable(); }
+
+function updateFilterCounts() {
+  const done = S.docs.filter(d => d.status === 'done' && d.result);
+  document.getElementById('fc-all').textContent  = S.docs.length;
+  document.getElementById('fc-pass').textContent = done.filter(d => (d.result.summary?.failed||0) === 0).length;
+  document.getElementById('fc-fail').textContent = done.filter(d => (d.result.summary?.failed||0) > 0).length;
+  document.getElementById('fc-high').textContent = done.filter(d => (d.result.summary?.highRisk||0) > 0).length;
+  document.getElementById('tableSubtitle').textContent = `${done.length} of ${S.docs.length} files processed`;
 }
 
-function buildReportCard(r, idx) {
+function renderBulkTable() {
+  updateFilterCounts();
+  let rows = S.docs.filter(d => {
+    if (searchQuery && !d.name.toLowerCase().includes(searchQuery)) return false;
+    if (currentFilter === 'pass') return d.status === 'done' && (d.result?.summary?.failed||0) === 0;
+    if (currentFilter === 'fail') return d.status === 'done' && (d.result?.summary?.failed||0) > 0;
+    if (currentFilter === 'high') return d.status === 'done' && (d.result?.summary?.highRisk||0) > 0;
+    return true;
+  });
+
+  const table = document.getElementById('bulkTable');
+  if (!rows.length) { table.innerHTML = '<div class="empty-row">No files match the current filter.</div>'; return; }
+
+  table.innerHTML = `
+    <div class="bulk-row bulk-head">
+      <div>#</div><div>File</div><div>Checklist</div><div>Risk</div><div>Rate</div><div></div>
+    </div>
+    ${rows.map((d, i) => {
+      const s = d.result?.summary || {};
+      const pass = s.passed||0, fail = s.failed||0, cant = s.cannotVerify||0, total = s.totalChecks||1;
+      const rate = Math.round((pass/total)*100);
+      const high = s.highRisk||0, med = s.mediumRisk||0, low = s.lowRisk||0;
+      const riskLabel = high>0?'high':med>0?'med':'low';
+      const riskText  = high>0?'High risk':med>0?'Medium risk':'Low risk';
+
+      if (d.status === 'queued') return `<div class="bulk-row"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.name)}</div><div class="bn-sub">Queued</div></div><div>—</div><div>—</div><div>—</div><div></div></div>`;
+      if (d.status === 'running') return `<div class="bulk-row"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.name)}</div><div class="bn-sub">Processing…</div></div><div><div class="mini-spinner"></div></div><div>—</div><div>—</div><div></div></div>`;
+      if (d.status === 'error') return `<div class="bulk-row error"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.name)}</div><div class="bn-sub" style="color:#C04646">${esc(d.error||'Error')}</div></div><div>—</div><div>—</div><div>—</div><div></div></div>`;
+
+      return `<div class="bulk-row" onclick="openDetail('${d.id}')">
+        <div class="b-i">${i+1}</div>
+        <div><div class="bn-title">${esc(d.name)}</div><div class="bn-sub">${d.result?.extractedData?.applicant?.name||''}</div></div>
+        <div>
+          <div class="mini-stack">
+            <div style="width:${Math.round(pass/total*100)}%;background:#2E9461"></div>
+            <div style="width:${Math.round(fail/total*100)}%;background:#C04646"></div>
+            <div style="width:${Math.round(cant/total*100)}%;background:#9AA3B2"></div>
+          </div>
+          <div class="mini-counts">
+            <span style="color:#2E9461">${pass}✓</span>
+            <span style="color:#C04646">${fail}✗</span>
+            ${cant?`<span style="color:#9AA3B2">${cant}?</span>`:''}
+          </div>
+        </div>
+        <div><span class="pill pill-${riskLabel}">${riskText}</span></div>
+        <div style="font-weight:600;font-size:14px;color:${rate>=70?'#2E9461':rate>=50?'#C28A1B':'#C04646'}">${rate}%</div>
+        <div class="b-action">›</div>
+      </div>`;
+    }).join('')}`;
+}
+
+/* ── DETAIL OVERLAY ── */
+function openDetail(id) {
+  const doc = S.docs.find(d => d.id === id);
+  if (!doc || !doc.result) return;
+  const r = doc.result;
   const s = r.summary || {};
-  const passRate = s.totalChecks > 0 ? Math.round(((s.passed||0)/s.totalChecks)*100) : 0;
-  const riskLabel = (s.highRisk||0) > 0 ? 'HIGH RISK' : (s.mediumRisk||0) > 0 ? 'MEDIUM RISK' : 'LOW RISK';
-  const riskCls = (s.highRisk||0) > 0 ? 'high' : (s.mediumRisk||0) > 0 ? 'med' : 'low';
+  const pass = s.passed||0, fail = s.failed||0, cant = s.cannotVerify||0, total = s.totalChecks||1;
+  const rate = Math.round((pass/total)*100);
+  const high = s.highRisk||0, med = s.mediumRisk||0;
+  const riskLabel = high>0?'High risk':med>0?'Medium risk':'Low risk';
+  const riskColor = high>0?'var(--red)':med>0?'var(--amber)':'var(--green)';
 
-  // Extracted data section
-  const appData = r.extractedData?.applicant || {};
-  const coData = r.extractedData?.coApplicant || {};
-  const bizData = r.extractedData?.business || {};
+  const app = r.extractedData?.applicant || {};
+  const coapp = r.extractedData?.coApplicant || {};
+  const biz = r.extractedData?.business || {};
 
-  const extRows = (obj, prefix) => Object.entries(obj)
-    .filter(([k,v]) => v && v !== '')
-    .map(([k,v]) => `<div class="ext-field"><div class="ef-label">${formatKey(k)}</div><div class="ef-val">${v}</div></div>`)
-    .join('');
+  const extFields = (obj) => Object.entries(obj).filter(([k,v])=>v&&v!=='').map(([k,v])=>`
+    <div class="ext-field"><div class="ef-label">${formatKey(k)}</div><div class="ef-val">${esc(v)}</div></div>`).join('');
 
-  const extSection = (extRows(appData,'app').length || extRows(coData,'co').length) ? `
-    <div class="extracted-section">
-      <div class="ext-title">Extracted Fields — Applicant</div>
-      <div class="ext-grid">${extRows(appData,'app')}</div>
-      ${extRows(coData,'co').length ? `<div class="ext-title" style="margin-top:10px;">Co-Applicant</div><div class="ext-grid">${extRows(coData,'co')}</div>` : ''}
-      ${extRows(bizData,'biz').length ? `<div class="ext-title" style="margin-top:10px;">Business</div><div class="ext-grid">${extRows(bizData,'biz')}</div>` : ''}
-    </div>` : '';
-
-  // Checklist
-  const checks = (r.checkResults || []).map(c => {
-    const icon = c.result === 'PASS' ? '✓' : c.result === 'FAIL' ? '✗' : '?';
-    const cls = c.result === 'PASS' ? 'pass' : c.result === 'FAIL' ? 'fail' : 'cannot';
-    const riskBadge = c.result !== 'PASS' && c.risk && c.risk !== 'NA'
-      ? `<span class="ci-risk risk-${c.risk === 'HIGH' ? 'high' : c.risk === 'MEDIUM' ? 'med' : 'low'}">${c.risk}</span>` : '';
-    return `<div class="check-item ${cls}">
-      <span class="ci-icon">${icon}</span>
-      <div>
-        <span class="ci-id">${c.id}</span>${riskBadge}
-        — ${c.description}
-        ${c.reason ? `<div style="font-size:11px;opacity:0.8;margin-top:2px;">${c.reason}</div>` : ''}
-      </div>
-    </div>`;
+  const checks = (r.checkResults||[]).map(c => {
+    const cls = c.result==='PASS'?'pass':c.result==='FAIL'?'fail':'cant';
+    const icon = c.result==='PASS'?'✓':c.result==='FAIL'?'✗':'?';
+    const riskBadge = (c.result!=='PASS'&&c.risk&&c.risk!=='NA')
+      ?`<span class="ci-risk risk-${c.risk==='HIGH'?'high':c.risk==='MEDIUM'?'med':'low'}">${c.risk}</span>`:'';
+    return `<div class="check-item ${cls}"><span class="ci-icon">${icon}</span><div><span class="ci-id">${c.id}</span>${riskBadge} ${esc(c.description)}${c.reason?`<div style="font-size:11px;opacity:.75;margin-top:2px">${esc(c.reason)}</div>`:''}</div></div>`;
   }).join('');
 
-  // Observations
-  const obsSection = r.auditObservations?.length ? `
-    <div class="obs-section">
-      <div class="obs-title">⚠ Audit Observations (${r.auditObservations.length})</div>
-      ${r.auditObservations.map(o => `<div class="obs-item">${o}</div>`).join('')}
-    </div>` : '';
+  const obs = r.auditObservations?.length?`<div class="obs-box"><div class="obs-title">⚠ Audit Observations</div>${r.auditObservations.map(o=>`<div class="obs-item">${esc(o)}</div>`).join('')}</div>`:'';
+  const bizBox = r.businessPhoto?.businessType?`<div class="biz-box"><div class="biz-box-title">📷 Business Analysis</div><strong>${esc(r.businessPhoto.businessType)}</strong><div class="biz-valuation" style="margin-top:6px">₹${(r.businessPhoto.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.businessPhoto.valuationMax||0).toLocaleString('en-IN')}</div>${r.businessPhoto.items?.length?`<div style="font-size:12px;color:var(--muted);margin-top:4px">Items: ${r.businessPhoto.items.join(', ')}</div>`:''}</div>`:'';
 
-  // Business photo
-  const bizSection = r.businessPhoto?.businessType ? `
-    <div class="biz-section">
-      <div class="biz-title">📷 Business Analysis</div>
-      <div><strong>${r.businessPhoto.businessType}</strong></div>
-      <div class="biz-val" style="margin-top:6px;">₹${(r.businessPhoto.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.businessPhoto.valuationMax||0).toLocaleString('en-IN')}</div>
-      ${r.businessPhoto.items?.length ? `<div class="biz-items">Items seen: ${r.businessPhoto.items.join(', ')}</div>` : ''}
-      ${r.businessPhoto.notes ? `<div class="biz-items" style="margin-top:4px;">${r.businessPhoto.notes}</div>` : ''}
-    </div>` : '';
+  document.getElementById('detailPane').innerHTML = `
+    <div class="dive-head">
+      <div>
+        <div class="eyebrow">File Detail</div>
+        <h3>${esc(doc.name)}</h3>
+      </div>
+      <button class="ghost-btn" onclick="closeDetail()">✕ Close</button>
+    </div>
+    <div class="dive-body">
+      <div class="dive-col">
+        <div class="applicant">${esc(app.name||r.fileName||doc.name)}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+          <span class="pill ${fail===0?'pill-pass':'pill-fail'}">${fail===0?'✓ All checks passed':'✗ '+fail+' check'+(fail>1?'s':'')+' failed'}</span>
+          <span class="pill" style="background:var(--surface-2);color:var(--muted)">${rate}% pass rate</span>
+        </div>
+        <div class="detail-score-row">
+          <div><div class="ds-num" style="color:${riskColor}">${rate}<span>%</span></div></div>
+          <div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
+            <div>✓ ${pass} passed</div>
+            <div style="color:var(--red)">✗ ${fail} failed</div>
+            <div>? ${cant} unverifiable</div>
+          </div>
+        </div>
+        <div class="recommendation" style="border-color:${riskColor}">
+          <div class="rec-label" style="color:${riskColor}">${riskLabel}</div>
+          <div class="rec-title">${fail===0?'File cleared — no issues found':high>0?'Immediate review required':med>0?'Conditional — review flagged items':'Minor observations noted'}</div>
+          <div class="rec-reasoning">${r.auditObservations?.length?r.auditObservations[0]:(fail===0?'All KYC checks passed. File is compliant.':'Review the failed checklist items and resolve before proceeding.')}</div>
+        </div>
+        ${app.name||Object.keys(app).some(k=>app[k]) ? `
+        <div style="margin-top:18px">
+          <div class="dive-label">Extracted — Applicant</div>
+          <div class="ext-grid">${extFields(app)}</div>
+          ${Object.values(coapp).some(v=>v)?`<div class="dive-label" style="margin-top:12px">Co-Applicant</div><div class="ext-grid">${extFields(coapp)}</div>`:''}
+          ${Object.values(biz).some(v=>v)?`<div class="dive-label" style="margin-top:12px">Business</div><div class="ext-grid">${extFields(biz)}</div>`:''}
+        </div>`:''
+        }
+        ${bizBox}
+        <div style="margin-top:16px;display:flex;gap:8px;">
+          <button class="ghost-btn" onclick="downloadFileReport('${id}')">⬇ Download Report</button>
+        </div>
+      </div>
+      <div class="dive-col">
+        <div class="dive-label">Checklist Results (${total} checks)</div>
+        ${obs}
+        ${checks}
+      </div>
+    </div>`;
+
+  document.getElementById('detailOverlay').style.display = 'grid';
+}
+function closeDetail() { document.getElementById('detailOverlay').style.display = 'none'; }
+
+/* ── REPORTS PAGE ── */
+function renderReports() {
+  const done = S.docs.filter(d => d.status === 'done' && d.result);
+  const el = document.getElementById('reportsList');
+  if (!done.length) {
+    el.innerHTML = '<div style="text-align:center;padding:60px;color:var(--muted)">No audit results yet. Run an audit first.</div>';
+    return;
+  }
+  el.innerHTML = done.map((d, i) => buildReportCard(d, i)).join('');
+}
+
+function buildReportCard(doc, idx) {
+  const r = doc.result;
+  const s = r.summary || {};
+  const pass = s.passed||0, fail = s.failed||0, total = s.totalChecks||1;
+  const rate = Math.round((pass/total)*100);
+  const high = s.highRisk||0, med = s.mediumRisk||0;
+  const riskCls = high>0?'high':med>0?'med':'low';
+  const riskText = high>0?'High Risk':med>0?'Medium Risk':'Low Risk';
+
+  const app = r.extractedData?.applicant || {};
+  const extRows = Object.entries(app).filter(([k,v])=>v&&v!=='')
+    .map(([k,v])=>`<div class="ext-field"><div class="ef-label">${formatKey(k)}</div><div class="ef-val">${esc(v)}</div></div>`).join('');
+
+  const checks = (r.checkResults||[]).map(c => {
+    const cls = c.result==='PASS'?'pass':c.result==='FAIL'?'fail':'cant';
+    const icon = c.result==='PASS'?'✓':c.result==='FAIL'?'✗':'?';
+    const rb = (c.result!=='PASS'&&c.risk&&c.risk!=='NA')?`<span class="ci-risk risk-${c.risk==='HIGH'?'high':c.risk==='MEDIUM'?'med':'low'}">${c.risk}</span>`:'';
+    return `<div class="check-item ${cls}"><span class="ci-icon">${icon}</span><div><span class="ci-id">${c.id}</span>${rb} ${esc(c.description)}${c.reason?`<div style="font-size:11px;opacity:.75;margin-top:2px">${esc(c.reason)}</div>`:''}</div></div>`;
+  }).join('');
+
+  const obs = r.auditObservations?.length?`<div class="obs-box"><div class="obs-title">⚠ Audit Observations (${r.auditObservations.length})</div>${r.auditObservations.map(o=>`<div class="obs-item">${esc(o)}</div>`).join('')}</div>`:'';
+  const bizBox = r.businessPhoto?.businessType?`<div class="biz-box"><div class="biz-box-title">📷 Business Analysis</div><strong>${esc(r.businessPhoto.businessType)}</strong><div class="biz-valuation" style="margin-top:4px">₹${(r.businessPhoto.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.businessPhoto.valuationMax||0).toLocaleString('en-IN')}</div>${r.businessPhoto.items?.length?`<div style="font-size:12px;color:var(--muted);margin-top:3px">Items: ${r.businessPhoto.items.join(', ')}</div>`:''}</div>`:'';
 
   return `
-    <div class="report-card" id="rcard-${idx}">
-      <div class="report-card-header" onclick="toggleReport(${idx})">
-        <div class="rch-name">${r.fileName || ('File ' + (idx+1))}</div>
+    <div class="report-card">
+      <div class="report-card-header" onclick="toggleReport('rb-${idx}','rc-${idx}')">
+        <div class="rch-name">${esc(doc.name)}</div>
         <div class="rch-pills">
-          <span class="pill pill-pass">${s.passed||0} pass</span>
-          <span class="pill pill-fail">${s.failed||0} fail</span>
-          <span class="pill pill-rate">${passRate}%</span>
-          <span class="pill pill-${riskCls}">${riskLabel}</span>
+          <span class="pill pill-pass">${pass} pass</span>
+          <span class="pill pill-fail">${fail} fail</span>
+          <span class="pill" style="background:var(--surface-2);color:var(--muted)">${rate}%</span>
+          <span class="pill pill-${riskCls}">${riskText}</span>
         </div>
-        <span class="rch-chevron" id="chevron-${idx}">▼</span>
+        <span class="rch-chevron" id="rc-${idx}">▼</span>
       </div>
-      <div class="report-card-body" id="rbody-${idx}">
-        ${extSection}
-        ${obsSection}
-        ${bizSection}
-        <div class="checklist-section">
-          <div class="checklist-title">Checklist Results</div>
-          ${checks}
-        </div>
+      <div class="report-card-body" id="rb-${idx}">
+        ${extRows?`<div class="rb-section"><div class="rb-label">Extracted Fields</div><div class="ext-grid">${extRows}</div></div>`:''}
+        ${obs}${bizBox}
+        <div class="rb-section"><div class="rb-label">Checklist (${total} checks)</div>${checks}</div>
         <div class="report-actions">
-          <button class="btn-outline" onclick="downloadFileReport(${idx})">⬇ Download Report (.txt)</button>
+          <button class="ghost-btn" onclick="downloadFileReportById('${doc.id}')">⬇ Download Report (.txt)</button>
         </div>
       </div>
     </div>`;
 }
 
-function toggleReport(idx) {
-  const body = document.getElementById('rbody-' + idx);
-  const chevron = document.getElementById('chevron-' + idx);
-  const isOpen = body.classList.contains('open');
-  body.classList.toggle('open', !isOpen);
-  chevron.classList.toggle('open', !isOpen);
+function toggleReport(bodyId, chevId) {
+  const body = document.getElementById(bodyId);
+  const chev = document.getElementById(chevId);
+  const open = body.classList.contains('open');
+  body.classList.toggle('open', !open);
+  if (chev) chev.classList.toggle('open', !open);
 }
 
-function formatKey(k) {
-  return k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+/* ── DOWNLOADS ── */
+function downloadFileReportById(id) {
+  const doc = S.docs.find(d => d.id === id);
+  if (doc) downloadFileReport(id);
 }
 
-// ── DOWNLOAD: FILE REPORT ──
-function downloadFileReport(idx) {
-  const r = state.allResults[idx];
-  if (!r) return;
+function downloadFileReport(id) {
+  const doc = S.docs.find(d => d.id === id);
+  if (!doc?.result) return;
+  const r = doc.result;
   const s = r.summary || {};
-  const passRate = s.totalChecks > 0 ? Math.round(((s.passed||0)/s.totalChecks)*100) : 0;
-
-  let txt = '';
-  txt += '╔══════════════════════════════════════════════════════════════╗\n';
-  txt += '║           KYC AUDIT REPORT — INDIVIDUAL FILE               ║\n';
-  txt += '╚══════════════════════════════════════════════════════════════╝\n\n';
-  txt += `File ID       : ${r.fileName}\n`;
-  txt += `Date          : ${new Date().toLocaleDateString('en-IN')}\n`;
-  txt += `Time          : ${new Date().toLocaleTimeString('en-IN')}\n\n`;
-
-  txt += '── SUMMARY ─────────────────────────────────────────────────────\n';
-  txt += `Total Checks  : ${s.totalChecks||0}\n`;
-  txt += `Passed        : ${s.passed||0}\n`;
-  txt += `Failed        : ${s.failed||0}\n`;
-  txt += `Cannot Verify : ${s.cannotVerify||0}\n`;
-  txt += `Pass Rate     : ${passRate}%\n`;
-  txt += `High Risk     : ${s.highRisk||0}\n`;
-  txt += `Medium Risk   : ${s.mediumRisk||0}\n`;
-  txt += `Low Risk      : ${s.lowRisk||0}\n\n`;
-
-  txt += '── EXTRACTED DATA ──────────────────────────────────────────────\n';
-  if (r.extractedData?.applicant) {
-    txt += 'Applicant:\n';
-    Object.entries(r.extractedData.applicant).forEach(([k,v]) => { if (v) txt += `  ${formatKey(k).padEnd(20)}: ${v}\n`; });
+  const rate = s.totalChecks>0 ? Math.round(((s.passed||0)/s.totalChecks)*100) : 0;
+  let txt = '╔══════════════════════════════════════════════════════════╗\n';
+  txt += '║         KYC AUDIT REPORT — INDIVIDUAL FILE             ║\n';
+  txt += '╚══════════════════════════════════════════════════════════╝\n\n';
+  txt += `File       : ${r.fileName}\nDate       : ${new Date().toLocaleDateString('en-IN')}\nTime       : ${new Date().toLocaleTimeString('en-IN')}\n\n`;
+  txt += `── SUMMARY ─────────────────────────────────────────────────\n`;
+  txt += `Total Checks : ${s.totalChecks||0}\nPassed       : ${s.passed||0}\nFailed       : ${s.failed||0}\nPass Rate    : ${rate}%\nHigh Risk    : ${s.highRisk||0} | Medium : ${s.mediumRisk||0} | Low : ${s.lowRisk||0}\n\n`;
+  const app = r.extractedData?.applicant||{};
+  if (Object.values(app).some(v=>v)) {
+    txt += `── EXTRACTED DATA ───────────────────────────────────────────\n`;
+    Object.entries(app).forEach(([k,v])=>{ if(v) txt += `  ${formatKey(k).padEnd(20)}: ${v}\n`; });
+    txt += '\n';
   }
-  if (r.extractedData?.coApplicant?.name) {
-    txt += 'Co-Applicant:\n';
-    Object.entries(r.extractedData.coApplicant).forEach(([k,v]) => { if (v) txt += `  ${formatKey(k).padEnd(20)}: ${v}\n`; });
-  }
-  txt += '\n';
-
-  txt += '── CHECKLIST RESULTS ───────────────────────────────────────────\n';
-  (r.checkResults || []).forEach(c => {
-    const mark = c.result === 'PASS' ? '[PASS]' : c.result === 'FAIL' ? '[FAIL]' : '[N/V] ';
-    txt += `${mark} ${c.id.padEnd(4)} ${c.description}\n`;
-    if (c.reason) txt += `       Reason : ${c.reason}\n`;
-    if (c.risk && c.risk !== 'NA' && c.result !== 'PASS') txt += `       Risk   : ${c.risk}\n`;
+  txt += `── CHECKLIST ────────────────────────────────────────────────\n`;
+  (r.checkResults||[]).forEach(c => {
+    txt += `[${c.result.padEnd(13)}] ${c.id.padEnd(4)} ${c.description}\n`;
+    if (c.reason) txt += `  Reason : ${c.reason}\n`;
+    if (c.risk && c.risk!=='NA' && c.result!=='PASS') txt += `  Risk   : ${c.risk}\n`;
     txt += '\n';
   });
-
   if (r.auditObservations?.length) {
-    txt += '── AUDIT OBSERVATIONS ──────────────────────────────────────────\n';
-    r.auditObservations.forEach((o, i) => { txt += `${i+1}. ${o}\n`; });
+    txt += `── OBSERVATIONS ─────────────────────────────────────────────\n`;
+    r.auditObservations.forEach((o,i)=>{ txt += `${i+1}. ${o}\n`; });
     txt += '\n';
   }
-
   if (r.businessPhoto?.businessType) {
-    txt += '── BUSINESS PHOTO ANALYSIS ─────────────────────────────────────\n';
-    txt += `Business Type : ${r.businessPhoto.businessType}\n`;
-    txt += `Valuation     : ₹${(r.businessPhoto.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.businessPhoto.valuationMax||0).toLocaleString('en-IN')} INR\n`;
-    if (r.businessPhoto.items?.length) txt += `Items Seen    : ${r.businessPhoto.items.join(', ')}\n`;
-    if (r.businessPhoto.notes) txt += `Notes         : ${r.businessPhoto.notes}\n`;
-    txt += '\n';
+    txt += `── BUSINESS ANALYSIS ────────────────────────────────────────\n`;
+    txt += `Type      : ${r.businessPhoto.businessType}\nValuation : ₹${(r.businessPhoto.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.businessPhoto.valuationMax||0).toLocaleString('en-IN')}\n`;
+    if (r.businessPhoto.items?.length) txt += `Items     : ${r.businessPhoto.items.join(', ')}\n`;
   }
-
-  txt += '════════════════════════════════════════════════════════════════\n';
-  txt += 'Generated by KYC Audit Automation Tool\n';
-
-  downloadText(txt, `KYC_Report_${r.fileName}.txt`);
+  txt += '\n════════════════════════════════════════════════════════════\nGenerated by KYC Audit Automation Tool\n';
+  dlText(txt, `KYC_Report_${doc.name.replace(/\.[^.]+$/,'')}.txt`);
 }
 
-// ── DOWNLOAD: MASTER REPORT ──
 function downloadMasterReport() {
-  if (state.allResults.length === 0) { alert('No audit results to export.'); return; }
-
-  const totChecks = state.allResults.reduce((a,r) => a + (r.summary?.totalChecks||0), 0);
-  const totPass = state.allResults.reduce((a,r) => a + (r.summary?.passed||0), 0);
-  const totHigh = state.allResults.reduce((a,r) => a + (r.summary?.highRisk||0), 0);
-
-  let txt = '';
-  txt += '╔══════════════════════════════════════════════════════════════╗\n';
-  txt += '║            KYC MASTER AUDIT REPORT                         ║\n';
-  txt += '╚══════════════════════════════════════════════════════════════╝\n\n';
-  txt += `Generated     : ${new Date().toLocaleString('en-IN')}\n`;
-  txt += `Total Files   : ${state.allResults.length}\n`;
-  txt += `Total Checks  : ${totChecks}\n`;
-  txt += `Total Passed  : ${totPass}\n`;
-  txt += `High Risk Obs : ${totHigh}\n\n`;
-
-  txt += '── FILE SUMMARY TABLE ──────────────────────────────────────────\n';
-  txt += 'File'.padEnd(30) + 'Checks'.padEnd(8) + 'Pass'.padEnd(8) + 'Fail'.padEnd(8) + 'High'.padEnd(8) + 'Rate\n';
-  txt += '─'.repeat(68) + '\n';
-  state.allResults.forEach(r => {
-    const s = r.summary || {};
-    const rate = s.totalChecks > 0 ? Math.round(((s.passed||0)/s.totalChecks)*100) + '%' : '—';
-    txt += (r.fileName||'—').padEnd(30) + String(s.totalChecks||0).padEnd(8) + String(s.passed||0).padEnd(8) + String(s.failed||0).padEnd(8) + String(s.highRisk||0).padEnd(8) + rate + '\n';
+  const done = S.docs.filter(d=>d.status==='done'&&d.result);
+  if (!done.length) { alert('No results yet.'); return; }
+  let txt = '╔══════════════════════════════════════════════════════════╗\n';
+  txt += '║              KYC MASTER AUDIT REPORT                   ║\n';
+  txt += '╚══════════════════════════════════════════════════════════╝\n\n';
+  txt += `Generated : ${new Date().toLocaleString('en-IN')}\nTotal Files : ${done.length}\n\n`;
+  txt += `── FILE SUMMARY ─────────────────────────────────────────────\n`;
+  txt += 'File'.padEnd(35)+'Checks'.padEnd(8)+'Pass'.padEnd(8)+'Fail'.padEnd(8)+'High'.padEnd(8)+'Rate\n';
+  txt += '─'.repeat(72)+'\n';
+  done.forEach(d=>{
+    const s=d.result.summary||{};
+    const rate=s.totalChecks>0?Math.round(((s.passed||0)/s.totalChecks)*100)+'%':'—';
+    txt+=d.name.slice(0,34).padEnd(35)+String(s.totalChecks||0).padEnd(8)+String(s.passed||0).padEnd(8)+String(s.failed||0).padEnd(8)+String(s.highRisk||0).padEnd(8)+rate+'\n';
   });
-  txt += '\n';
-
-  txt += '── OBSERVATIONS ACROSS ALL FILES ───────────────────────────────\n';
-  state.allResults.forEach((r, i) => {
-    if (r.auditObservations?.length) {
-      txt += `\n[${r.fileName}]\n`;
-      r.auditObservations.forEach((o, j) => { txt += `  ${j+1}. ${o}\n`; });
+  txt += '\n── OBSERVATIONS ─────────────────────────────────────────────\n';
+  done.forEach(d=>{
+    if (d.result.auditObservations?.length) {
+      txt += `\n[${d.name}]\n`;
+      d.result.auditObservations.forEach((o,i)=>{ txt+=`  ${i+1}. ${o}\n`; });
     }
   });
-
-  txt += '\n════════════════════════════════════════════════════════════════\n';
-  txt += 'Generated by KYC Audit Automation Tool\n';
-
-  downloadText(txt, 'KYC_Master_Report.txt');
+  txt += '\n════════════════════════════════════════════════════════════\nGenerated by KYC Audit Automation Tool\n';
+  dlText(txt, 'KYC_Master_Report.txt');
 }
 
-// ── DOWNLOAD: CSV ──
 function downloadMasterCSV() {
-  if (state.allResults.length === 0) { alert('No audit results to export.'); return; }
-  const rows = [['File ID','Total Checks','Passed','Failed','Cannot Verify','High Risk','Medium Risk','Low Risk','Pass Rate %','Observations']];
-  state.allResults.forEach(r => {
-    const s = r.summary || {};
-    const rate = s.totalChecks > 0 ? Math.round(((s.passed||0)/s.totalChecks)*100) : 0;
-    rows.push([
-      r.fileName||'—', s.totalChecks||0, s.passed||0, s.failed||0, s.cannotVerify||0,
-      s.highRisk||0, s.mediumRisk||0, s.lowRisk||0, rate,
-      (r.auditObservations||[]).join(' | '),
-    ]);
+  const done = S.docs.filter(d=>d.status==='done'&&d.result);
+  if (!done.length) { alert('No results yet.'); return; }
+  const rows = [['File','Total Checks','Passed','Failed','Cannot Verify','High Risk','Medium Risk','Low Risk','Pass Rate %','Applicant Name','Observations']];
+  done.forEach(d=>{
+    const s=d.result.summary||{};
+    const rate=s.totalChecks>0?Math.round(((s.passed||0)/s.totalChecks)*100):0;
+    rows.push([d.name,s.totalChecks||0,s.passed||0,s.failed||0,s.cannotVerify||0,s.highRisk||0,s.mediumRisk||0,s.lowRisk||0,rate,d.result.extractedData?.applicant?.name||'',(d.result.auditObservations||[]).join(' | ')]);
   });
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  downloadText(csv, 'KYC_Master_Report.csv');
+  dlText(rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n'), 'KYC_Master_Report.csv');
 }
 
-function downloadText(content, filename) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+function dlText(content, filename) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+  a.href = URL.createObjectURL(new Blob([content],{type:'text/plain;charset=utf-8'}));
   a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
-// ── INIT ──
-updateApiStatus();
+/* ── WIPE ── */
+function wipeAll() {
+  if (!confirm('Clear all files and results from this session?')) return;
+  S.docs = [];
+  renderFileList();
+  checkRunEligible();
+  document.getElementById('wipeBtn').style.display = 'none';
+  document.getElementById('navDash').disabled = true;
+  document.getElementById('navReports').disabled = true;
+  navTo('input');
+}
+
+/* ── INIT ── */
+navTo('input');

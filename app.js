@@ -1,25 +1,55 @@
-/* ── KYC AUDIT TOOL — app.js ── */
+/* KYC AUDIT TOOL v3 — app.js */
 
 const S = {
-  apiKey: '',
-  docs: [],       // { id, name, size, file, status, result, error }
-  losLms: {},
-  filter: 'all',
-  sortKey: 'name',
-  sortDir: 1,
-  charts: {},
-  threshHigh: 50,
-  threshMed: 25,
+  apiKey:'', docs:[], csvData:{}, filter:'all', searchQuery:'',
+  charts:{}, threshHigh:50, threshMed:25, ruleCatFilter:'all',
+  checklist: getDefaultChecklist(),
 };
+
+/* ── DEFAULT CHECKLIST ── */
+function getDefaultChecklist() {
+  return [
+    {id:'A1',desc:'Has applicant provided a valid Aadhaar? (12-digit format)',cat:'Applicant KYC',risk:'HIGH'},
+    {id:'A2',desc:'Does applicant have a PAN Card?',cat:'Applicant KYC',risk:'HIGH'},
+    {id:'A3',desc:'Is the 4th character of applicant PAN the letter "P"? (confirms individual)',cat:'Applicant KYC',risk:'HIGH'},
+    {id:'A4',desc:'Is applicant photograph consistent across PAN and Aadhaar? (photo match)',cat:'Photo Verification',risk:'HIGH'},
+    {id:'A5',desc:'Is PAN format valid? (5 letters + 4 digits + 1 letter)',cat:'Applicant KYC',risk:'HIGH'},
+    {id:'A6',desc:'Is Date of Birth consistent across PAN and Aadhaar?',cat:'Applicant KYC',risk:'HIGH'},
+    {id:'A7',desc:'Is applicant age between 20 and 60 years?',cat:'Applicant KYC',risk:'HIGH'},
+    {id:'A8',desc:'Are permanent and correspondence addresses same and matching Aadhaar?',cat:'Applicant KYC',risk:'MEDIUM'},
+    {id:'A9',desc:'Is name consistent across all provided documents?',cat:'Applicant KYC',risk:'HIGH'},
+    {id:'A10',desc:'Is gender consistent across all provided documents?',cat:'Applicant KYC',risk:'MEDIUM'},
+    {id:'A11',desc:'Does any address PIN code start with digit 9?',cat:'Applicant KYC',risk:'HIGH'},
+    {id:'A12',desc:'Is applicant PIN code matching co-applicant PIN code?',cat:'Applicant KYC',risk:'MEDIUM'},
+    {id:'A13',desc:'Is applicant name in documents matching LOS data?',cat:'LOS/LMS Cross-check',risk:'HIGH'},
+    {id:'A14',desc:'Is applicant name in documents matching LMS data?',cat:'LOS/LMS Cross-check',risk:'HIGH'},
+    {id:'A15',desc:'Is Date of Birth consistent across LOS and LMS?',cat:'LOS/LMS Cross-check',risk:'MEDIUM'},
+    {id:'A16',desc:'Is PAN in documents matching PAN in LOS/LMS?',cat:'LOS/LMS Cross-check',risk:'HIGH'},
+    {id:'A17',desc:'Is gender consistent across LOS and LMS?',cat:'LOS/LMS Cross-check',risk:'MEDIUM'},
+    {id:'C1',desc:'Has co-applicant provided a valid Aadhaar?',cat:'Co-Applicant KYC',risk:'HIGH'},
+    {id:'C2',desc:'Does co-applicant have a PAN Card?',cat:'Co-Applicant KYC',risk:'HIGH'},
+    {id:'C3',desc:'Is the 4th character of co-applicant PAN "P"?',cat:'Co-Applicant KYC',risk:'HIGH'},
+    {id:'C4',desc:'Is co-applicant photograph consistent across PAN and Aadhaar?',cat:'Photo Verification',risk:'HIGH'},
+    {id:'C5',desc:'Is co-applicant PAN format valid?',cat:'Co-Applicant KYC',risk:'HIGH'},
+    {id:'C6',desc:'Is co-applicant DOB consistent across PAN and Aadhaar?',cat:'Co-Applicant KYC',risk:'HIGH'},
+    {id:'C7',desc:'Is co-applicant age between 20 and 60 years?',cat:'Co-Applicant KYC',risk:'HIGH'},
+    {id:'C8',desc:'Is co-applicant name consistent across all documents?',cat:'Co-Applicant KYC',risk:'HIGH'},
+    {id:'C9',desc:'Is co-applicant gender consistent with LOS/LMS?',cat:'Co-Applicant KYC',risk:'MEDIUM'},
+    {id:'C10',desc:'Is co-applicant address consistent across LOS and LMS?',cat:'Co-Applicant KYC',risk:'MEDIUM'},
+    {id:'P1',desc:'Is customer visit/business photo available and clear?',cat:'Photo Verification',risk:'MEDIUM'},
+    {id:'P2',desc:'Does business photo match the declared business type and activity?',cat:'Business Verification',risk:'HIGH'},
+    {id:'B1',desc:'Is GST/Udyam registration number valid and matching declared business?',cat:'Business Verification',risk:'HIGH'},
+    {id:'B2',desc:'Is business address in GST certificate matching LOS address?',cat:'Business Verification',risk:'MEDIUM'},
+  ];
+}
 
 /* ── NAV ── */
 function navTo(page) {
-  ['input','dashboard','reports'].forEach(p => {
+  ['input','checklist','dashboard','reports'].forEach(p => {
     document.getElementById('page-' + p).style.display = p === page ? 'block' : 'none';
   });
-  document.querySelectorAll('.seg button[data-page]').forEach(b => {
-    b.classList.toggle('on', b.dataset.page === page);
-  });
+  document.querySelectorAll('.seg button[data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
+  if (page === 'checklist') renderRules();
   if (page === 'dashboard') renderDashboard();
   if (page === 'reports') renderReports();
 }
@@ -30,722 +60,686 @@ function closeSettings() { document.getElementById('settingsOverlay').style.disp
 function saveApiKey() {
   S.apiKey = document.getElementById('apiKeyInput').value.trim();
   document.getElementById('apiSaveMsg').style.display = 'block';
-  const badge = document.getElementById('apiBadge');
-  if (S.apiKey) {
-    badge.textContent = '✓ API key active';
-    badge.className = 'conf-badge';
-  } else {
-    badge.textContent = 'No API key';
-    badge.className = 'conf-badge warn';
-  }
+  const b = document.getElementById('apiBadge');
+  b.innerHTML = S.apiKey ? '<span class="status-dot green"></span>API key active' : '<span class="status-dot red"></span>No API key';
+  b.className = S.apiKey ? 'conf-badge' : 'conf-badge warn';
 }
 function saveThresholds() {
-  S.threshHigh = parseInt(document.getElementById('threshHigh').value) || 50;
-  S.threshMed  = parseInt(document.getElementById('threshMed').value)  || 25;
+  S.threshHigh = parseInt(document.getElementById('threshHigh').value)||50;
+  S.threshMed  = parseInt(document.getElementById('threshMed').value)||25;
+}
+function saveLmsApi() { alert('LMS/LOS API connection will be available in the next release. For now, upload a CSV file with customer data.'); }
+
+/* ── ZIP UPLOAD ── */
+function dzOver(e, id) { e.preventDefault(); document.getElementById(id).classList.add('over'); }
+function dzLeave(id) { document.getElementById(id).classList.remove('over'); }
+function dzDropZip(e) { e.preventDefault(); dzLeave('zipDropzone'); if (e.dataTransfer.files[0]) loadZip(e.dataTransfer.files[0]); }
+
+async function loadZip(file) {
+  if (!file) return;
+  try {
+    document.getElementById('zipMeta').textContent = 'Reading ZIP...';
+    const zip = await JSZip.loadAsync(file);
+    const customers = {};
+    zip.forEach((path, zipEntry) => {
+      if (zipEntry.dir) return;
+      const parts = path.split('/').filter(Boolean);
+      if (parts.length < 2) return; // skip root-level files
+      const custId = parts[0];
+      const fileName = parts[parts.length - 1];
+      if (!customers[custId]) customers[custId] = [];
+      customers[custId].push({ name: fileName, entry: zipEntry, path });
+    });
+    const custIds = Object.keys(customers);
+    if (!custIds.length) { alert('No customer folders found in ZIP. Make sure each sub-folder = one customer.'); return; }
+    S.docs = custIds.map(id => ({
+      id: uid(), custId: id, files: customers[id],
+      status: 'queued', result: null, error: null, isDemo: false
+    }));
+    document.getElementById('zipMeta').textContent = `${custIds.length} customer folders loaded from ${file.name}`;
+    renderCustomerList();
+    checkRunEligible();
+  } catch(e) {
+    alert('Could not read ZIP: ' + e.message);
+    document.getElementById('zipMeta').textContent = 'Error reading ZIP';
+  }
 }
 
-/* ── DROPZONE ── */
-function dzOver(e)  { e.preventDefault(); document.getElementById('dropzone').classList.add('over'); }
-function dzLeave()  { document.getElementById('dropzone').classList.remove('over'); }
-function dzDrop(e)  { e.preventDefault(); dzLeave(); addFiles(e.dataTransfer.files); }
+/* ── CSV UPLOAD ── */
+async function loadCSV(file) {
+  if (!file) return;
+  const text = await file.text();
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g,'_'));
+  S.csvData = {};
+  for (let i = 1; i < lines.length; i++) {
+    const vals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g,''));
+    const row = {};
+    headers.forEach((h, j) => { row[h] = vals[j] || ''; });
+    const idKey = headers.find(h => h.includes('id') || h.includes('customer') || h.includes('loan'));
+    if (idKey && row[idKey]) S.csvData[row[idKey]] = row;
+  }
+  const count = Object.keys(S.csvData).length;
+  document.getElementById('csvStatus').textContent = `✓ ${count} customer records loaded from CSV. Data will be auto-matched by Customer ID.`;
+  document.getElementById('csvStatus').style.color = 'var(--green)';
+}
 
-function addFiles(files) {
-  Array.from(files).forEach(f => {
-    S.docs.push({ id: uid(), name: f.name, size: f.size, file: f, status: 'queued', result: null, error: null });
+/* ── DEMO FILES ── */
+const DEMO_NAMES = ['Rajesh Kumar','Priya Sharma','Amit Patel','Sunita Devi','Vikram Singh','Meena Kumari','Arjun Reddy','Kavitha Nair','Suresh Yadav','Lakshmi Iyer','Mohan Das','Anita Soni','Ramesh Gupta','Pooja Verma','Sanjay Tiwari','Deepa Menon','Ravi Shankar','Geeta Bose','Manoj Joshi','Usha Pillai'];
+const DEMO_SHOPS = ['Kirana Store','Medical Store','Mobile Shop','Textile Shop','Hardware Store','Bakery','Vegetable Market','Tailoring Shop','Electronic Shop','Stationery Store','Jewellery Shop','Restaurant','Auto Parts Shop','Furniture Store','Cosmetics Shop','Book Store','Dairy Shop','Cycle Shop','Shoe Store','Tea Stall'];
+const DEMO_CITIES = ['Mumbai','Delhi','Chennai','Bangalore','Hyderabad','Pune','Kolkata','Ahmedabad','Jaipur','Lucknow','Nagpur','Surat','Coimbatore','Kochi','Indore'];
+const DEMO_LANGS = ['Hindi','Tamil','Telugu','Kannada','Marathi','Malayalam','Bengali','Gujarati','English'];
+
+function loadDemo() {
+  const n = Math.min(100, Math.max(1, parseInt(document.getElementById('demoCount').value) || 100));
+  const rand = a => a[Math.floor(Math.random() * a.length)];
+  const ri = (lo,hi) => Math.floor(lo + Math.random()*(hi-lo+1));
+  S.docs = Array.from({length:n}, (_,i) => {
+    const name = DEMO_NAMES[i % DEMO_NAMES.length] + (i >= DEMO_NAMES.length ? ' ' + (Math.floor(i/DEMO_NAMES.length)+1) : '');
+    const custId = 'LOAN' + String(i+1).padStart(3,'0');
+    const shop = rand(DEMO_SHOPS);
+    const city = rand(DEMO_CITIES);
+    const lang = rand(DEMO_LANGS);
+    const profile = Math.random() < 0.35 ? 'clean' : Math.random() < 0.65 ? 'minor' : 'issues';
+    return {
+      id:uid(), custId, name, shop, city, lang, profile,
+      files:[
+        {name:'aadhaar.jpg',type:'demo-aadhaar'},
+        {name:'pan.jpg',type:'demo-pan'},
+        {name:'business_photo.jpg',type:'demo-photo'},
+        {name:'agreement.pdf',type:'demo-agreement'},
+      ],
+      status:'queued', result:null, error:null, isDemo:true
+    };
   });
-  renderFileList();
+  document.getElementById('zipMeta').textContent = `${n} demo customer files loaded`;
+  renderCustomerList();
   checkRunEligible();
 }
 
-function removeDoc(id) {
-  S.docs = S.docs.filter(d => d.id !== id);
-  renderFileList();
-  checkRunEligible();
-}
-
-function renderFileList() {
-  const el = document.getElementById('fileList');
-  const cnt = document.getElementById('fileCount');
-  cnt.textContent = S.docs.length + ' file' + (S.docs.length !== 1 ? 's' : '');
-  if (!S.docs.length) { el.style.display = 'none'; return; }
-  el.style.display = 'flex';
-  el.innerHTML = S.docs.map(d => `
-    <div class="file-row">
-      <div class="file-icon">${iconFor(d.name)}</div>
-      <div class="file-meta">
-        <div class="file-name">${esc(d.name)}</div>
-        <div class="file-sub">${fmtSize(d.size)}</div>
-      </div>
-      <button class="x-btn" onclick="removeDoc('${d.id}')" title="Remove">✕</button>
-    </div>`).join('');
+function renderCustomerList() {
+  const el = document.getElementById('customerList');
+  const count = document.getElementById('customerCount');
+  count.textContent = S.docs.length + ' customers';
+  if (!S.docs.length) { el.innerHTML = ''; return; }
+  document.getElementById('wipeBtn').style.display = 'inline-flex';
+  el.innerHTML = S.docs.slice(0,50).map(d => `
+    <div class="cust-row" id="cr-${d.id}">
+      <span class="cust-id">${esc(d.custId)}</span>
+      <span class="cust-files">${d.name || ''} · ${(d.files||[]).length} file${(d.files||[]).length!==1?'s':''}</span>
+      <span class="cust-status queued" id="cs-${d.id}">Queued</span>
+    </div>`).join('') + (S.docs.length > 50 ? `<div style="text-align:center;padding:8px;font-size:12px;color:var(--muted)">+ ${S.docs.length-50} more customers</div>` : '');
 }
 
 function checkRunEligible() {
   const btn = document.getElementById('runBtn');
   const meta = document.getElementById('runMeta');
   btn.disabled = S.docs.length === 0;
-  meta.textContent = S.docs.length
-    ? S.docs.length + ' file' + (S.docs.length > 1 ? 's' : '') + ' ready to audit.'
-    : 'Upload at least 1 document to begin.';
-  if (S.docs.length) document.getElementById('wipeBtn').style.display = 'inline-flex';
+  meta.textContent = S.docs.length ? `${S.docs.length} customer file${S.docs.length>1?'s':''} ready to audit.` : 'Upload a ZIP or load demo files to begin.';
 }
 
-/* ── DEMO FILES ── */
-function loadDemo() {
-  const names = [
-    'Ramesh_Kumar_Aadhaar.jpg','Ramesh_Kumar_PAN.jpg',
-    'Sunita_Devi_Aadhaar.jpg','Priya_Sharma_PAN.jpg',
-    'Vikram_Singh_Agreement.pdf'
-  ];
-  const sizes = [245000, 180000, 210000, 175000, 340000];
-  S.docs = names.map((name, i) => ({
-    id: uid(), name, size: sizes[i], file: null,
-    status: 'queued', result: null, error: null, isDemo: true
-  }));
-  renderFileList();
-  checkRunEligible();
+/* ── CHECKLIST RULES ── */
+let ruleCatFilter = 'all';
+function setRuleCat(cat, btn) {
+  ruleCatFilter = cat;
+  document.querySelectorAll('[data-rcat]').forEach(b => b.classList.toggle('on', b.dataset.rcat === cat));
+  renderRules();
 }
-
-/* ── LOS/LMS ── */
-function getLOSLMS() {
-  const ids = ['los_name','lms_name','los_dob','lms_dob','los_pan','lms_pan',
-               'los_gender','lms_gender','los_address','lms_address','los_pin','lms_risk'];
-  const d = {};
-  ids.forEach(id => { const el = document.getElementById(id); if (el && el.value.trim()) d[id] = el.value.trim(); });
-  return d;
+function renderRules() {
+  const filtered = ruleCatFilter === 'all' ? S.checklist : S.checklist.filter(r => r.cat === ruleCatFilter);
+  document.getElementById('ruleCount').textContent = `(${S.checklist.length} total, showing ${filtered.length})`;
+  const el = document.getElementById('rulesList');
+  if (!filtered.length) { el.innerHTML = '<div class="empty-row">No rules in this category.</div>'; return; }
+  el.innerHTML = `
+    <div class="rule-row rule-head"><div>ID</div><div>Description</div><div>Category</div><div>Risk</div><div></div></div>
+    ${filtered.map((r,i) => `
+      <div class="rule-row">
+        <div class="rule-id">${esc(r.id)}</div>
+        <div class="rule-desc">${esc(r.desc)}</div>
+        <div><span class="rule-cat">${esc(r.cat)}</span></div>
+        <div><span class="risk-badge risk-${r.risk}">${r.risk}</span></div>
+        <button class="del-btn" onclick="deleteRule('${r.id}')" title="Delete rule">✕</button>
+      </div>`).join('')}`;
 }
-
-/* ── HELPERS ── */
-function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function fmtSize(b) { return b > 1e6 ? (b/1e6).toFixed(1)+' MB' : Math.round(b/1024)+' KB'; }
-function iconFor(name) { return /\.pdf$/i.test(name) ? '📄' : /\.(jpg|jpeg|png|webp)$/i.test(name) ? '🖼' : '📁'; }
-function formatKey(k) { return k.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase()); }
-
-async function fileToBase64(file) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result.split(',')[1]);
-    r.onerror = rej;
-    r.readAsDataURL(file);
+function addRule() {
+  const id = document.getElementById('ruleId').value.trim();
+  const desc = document.getElementById('ruleDesc').value.trim();
+  const cat = document.getElementById('ruleCat').value;
+  const risk = document.getElementById('ruleRisk').value;
+  if (!id || !desc) { alert('Please enter both Rule ID and Description.'); return; }
+  if (S.checklist.find(r => r.id === id)) { alert('Rule ID already exists. Use a different ID.'); return; }
+  S.checklist.push({id, desc, cat, risk});
+  document.getElementById('ruleId').value = '';
+  document.getElementById('ruleDesc').value = '';
+  renderRules();
+}
+function addBulkRules() {
+  const text = document.getElementById('bulkRulesText').value.trim();
+  if (!text) return;
+  let added = 0;
+  text.split('\n').forEach(line => {
+    line = line.trim(); if (!line) return;
+    const parts = line.split('|').map(p => p.trim());
+    if (parts.length < 2) return;
+    const [id, desc, cat, risk] = parts;
+    if (!id || !desc) return;
+    if (S.checklist.find(r => r.id === id)) return;
+    S.checklist.push({ id, desc, cat: cat||'Custom', risk: ['HIGH','MEDIUM','LOW'].includes((risk||'').toUpperCase()) ? risk.toUpperCase() : 'MEDIUM' });
+    added++;
   });
+  document.getElementById('bulkRulesText').value = '';
+  renderRules();
+  alert(`${added} rule${added!==1?'s':''} added.`);
+}
+function deleteRule(id) { S.checklist = S.checklist.filter(r => r.id !== id); renderRules(); }
+function resetChecklist() { if (confirm('Reset to default rules? Custom rules will be removed.')) { S.checklist = getDefaultChecklist(); renderRules(); } }
+function exportChecklist() {
+  const data = JSON.stringify(S.checklist, null, 2);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([data],{type:'application/json'}));
+  a.download = 'kyc_checklist_rules.json'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+function importChecklistClick() { document.getElementById('checklistImport').click(); }
+async function importChecklist(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const rules = JSON.parse(text);
+    if (!Array.isArray(rules)) throw new Error('Invalid format');
+    S.checklist = rules;
+    renderRules();
+    alert(`${rules.length} rules imported.`);
+  } catch(e) { alert('Could not import: ' + e.message); }
 }
 
 /* ── BUILD PROMPT ── */
-async function buildMessages(doc, losLms) {
+async function buildMessages(doc) {
   const content = [];
-  const docLabels = {
-    aadhaar:'Aadhaar Card', pan:'PAN Card', photo:'Business Visit Photo',
-    agreement:'Loan Agreement', gst:'GST/Udyam Certificate', bank:'Bank Statement'
-  };
+  const losLms = getLOSLMSForDoc(doc);
+  const losText = Object.keys(losLms).length ? Object.entries(losLms).map(([k,v])=>`${k}: ${v}`).join('\n') : 'No LOS/LMS data provided.';
+  const checklistText = S.checklist.map(r => `${r.id} [${r.risk}] — ${r.desc} (Category: ${r.cat})`).join('\n');
+  const langNote = doc.lang ? `This customer's documents may be in ${doc.lang}. Translate all extracted text to English.` : 'Documents may be in any Indian language (Hindi, Tamil, Telugu, Kannada, Marathi etc.). Extract and translate all text to English.';
 
-  if (doc.file && !doc.isDemo) {
-    try {
-      const b64 = await fileToBase64(doc.file);
-      const mt = doc.file.type.includes('pdf') ? 'application/pdf' : (doc.file.type || 'image/jpeg');
-      // guess doc type from filename
-      const fn = doc.name.toLowerCase();
-      const label = fn.includes('aadhaar') || fn.includes('aadhar') ? 'Aadhaar Card'
-        : fn.includes('pan') ? 'PAN Card'
-        : fn.includes('photo') || fn.includes('shop') || fn.includes('biz') ? 'Business Visit Photo'
-        : fn.includes('agree') || fn.includes('kfs') ? 'Loan Agreement'
-        : fn.includes('gst') || fn.includes('udyam') || fn.includes('msme') ? 'GST/Udyam Certificate'
-        : fn.includes('bank') ? 'Bank Statement'
-        : 'KYC Document';
-      if (mt === 'application/pdf') {
-        content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:b64 }, title:label });
-      } else {
-        content.push({ type:'image', source:{ type:'base64', media_type:mt, data:b64 } });
-        content.push({ type:'text', text:`[Above image is: ${label}]` });
-      }
-    } catch(e) { /* skip unreadable file */ }
+  if (!doc.isDemo) {
+    for (const f of (doc.files||[])) {
+      try {
+        const b64 = await f.entry.async('base64');
+        const mt = f.name.match(/\.pdf$/i) ? 'application/pdf'
+          : f.name.match(/\.(jpg|jpeg)$/i) ? 'image/jpeg'
+          : f.name.match(/\.png$/i) ? 'image/png'
+          : 'image/jpeg';
+        const label = guessDocLabel(f.name);
+        if (mt === 'application/pdf') {
+          content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:b64},title:label});
+        } else {
+          content.push({type:'image',source:{type:'base64',media_type:mt,data:b64}});
+          content.push({type:'text',text:`[Above image is: ${label}]`});
+        }
+      } catch(e) { /* skip unreadable */ }
+    }
   }
 
-  const losText = Object.keys(losLms).length
-    ? Object.entries(losLms).map(([k,v])=>`${k}: ${v}`).join('\n')
-    : 'No LOS/LMS data provided.';
+  const demoContext = doc.isDemo ? `
+DEMO MODE: Generate realistic synthetic KYC audit results for:
+- Customer: ${doc.name}, Customer ID: ${doc.custId}
+- Business: ${doc.shop} in ${doc.city}
+- Document language: ${doc.lang}
+- Profile: ${doc.profile === 'clean' ? 'All documents are clean and consistent — most checks should PASS' : doc.profile === 'minor' ? 'Minor issues like small address mismatch — mostly PASS with 2-3 FAIL' : '3-5 significant issues including name mismatch or age violation — several FAIL'}
+- Business photo shows: A ${doc.shop} with typical inventory for that type of business
+` : '';
 
-  const isDemo = doc.isDemo;
-  const demoNote = isDemo ? `
-NOTE: This is a DEMO run. No actual document was uploaded. Generate realistic but synthetic KYC audit results for an Indian loan applicant named "${doc.name.replace(/\.[^.]+$/,'').replace(/_/g,' ')}". Make most checks PASS but introduce 2-3 realistic failures to demonstrate the tool.` : '';
-
-  content.push({ type:'text', text:`
-You are a senior KYC auditor at an Indian financial institution. File: "${doc.name}".${demoNote}
+  content.push({type:'text', text:`
+You are a senior KYC auditor at an Indian NBFC. Customer ID: "${doc.custId}".
+${langNote}
+${demoContext}
 
 LOS/LMS DATA:
 ${losText}
 
+CHECKLIST RULES TO EVALUATE (${S.checklist.length} rules):
+${checklistText}
+
 YOUR TASKS:
 
-1. EXTRACT fields from every document (handle Hindi, Tamil, Telugu, Kannada by translating to English):
-   From Aadhaar: Name, Father's Name, DOB, Aadhaar Number (mask first 8 digits), Gender, Address, PIN Code
-   From PAN: Name, Father's Name, DOB, PAN Number, 4th character of PAN
-   From GST/Udyam: Business Name, Registration No., Address, Business Type
-   From Agreement/KFS: Borrower Name, Loan Amount, Date
+STEP 1 — FIELD EXTRACTION
+Extract all the following. Translate to English from any Indian language found:
+- From Aadhaar: Full Name, Father's Name, Date of Birth, Aadhaar Number (show only last 4), Gender, Full Address, PIN Code, State
+- From PAN: Full Name, Father's Name, Date of Birth, PAN Number, 4th character
+- From Co-applicant Aadhaar/PAN: Same fields
+- From GST/Udyam: Business Name, Registration Number, Address, Type
+- From Agreement/KFS: Borrower Name, Loan Amount, EMI, Tenure, Date
 
-2. RUN CHECKLIST — answer each as PASS / FAIL / CANNOT_VERIFY with a reason:
+STEP 2 — KEY POINTS
+List the 8-12 most important facts found across all documents. These are the headline facts an auditor would note first.
 
-Applicant:
-A1. Valid Aadhaar provided? (12-digit format)
-A2. PAN Card provided?
-A3. 4th character of PAN is "P"? (confirms individual)
-A4. Photograph consistent across PAN and Aadhaar?
-A5. PAN format valid? (5 letters + 4 digits + 1 letter)
-A6. Date of Birth consistent across PAN and Aadhaar?
-A7. Applicant age between 20 and 60 years?
-A8. Permanent and correspondence addresses same and match Aadhaar?
-A9. Name consistent across all documents?
-A10. Gender consistent across all documents?
-A11. Any address PIN code starts with digit 9?
-A12. Co-applicant PIN matches applicant PIN?
-A13. Name in documents matches LOS?
-A14. Name in documents matches LMS?
-A15. DOB consistent across LOS and LMS?
-A16. PAN in documents matches LOS/LMS?
-A17. Gender consistent across LOS and LMS?
+STEP 3 — PHOTO ANALYSIS
+- Describe the business visible in the photo
+- Identify all items/inventory/assets visible
+- Estimate business valuation range in INR
+- Compare face in Aadhaar vs PAN vs business photo and note if they match
 
-Co-applicant (if documents provided):
-C1. Valid Aadhaar provided?
-C2. PAN Card provided?
-C3. 4th character of co-applicant PAN is "P"?
-C4. Co-applicant photograph consistent across documents?
-C5. Co-applicant PAN format valid?
-C6. Co-applicant DOB consistent across PAN and Aadhaar?
-C7. Co-applicant age between 20 and 60 years?
-C8. Co-applicant name consistent across all documents?
-C9. Co-applicant gender consistent with LOS/LMS?
-C10. Co-applicant address consistent across LOS and LMS?
+STEP 4 — CHECKLIST
+For EVERY rule in the checklist, run the check and respond:
+- result: PASS / FAIL / CANNOT_VERIFY
+- reason: brief explanation
+- risk: use the risk level from the rule definition
 
-Business photo (if provided):
-P1. What type of business is visible?
-P2. List all items/inventory visible.
-P3. Approximate business valuation in INR based on visible assets.
+STEP 5 — RISK & OBSERVATIONS
+If fail rate exceeds 50%, write formal audit observations in professional language.
 
-3. RISK per FAIL:
-   HIGH: Identity mismatch, invalid document format, age violation, PIN starting with 9
-   MEDIUM: Address/DOB/gender inconsistency, LOS-LMS mismatch
-   LOW: Optional field missing, image quality issue
-
-4. OBSERVATIONS: If >50% of applicable checks FAIL, write formal audit observations.
-
-Respond ONLY with valid JSON — no markdown, no backticks:
+Respond ONLY with valid JSON, no markdown, no extra text:
 {
-  "fileName": "${doc.name}",
+  "custId": "${doc.custId}",
+  "customerName": "",
   "extractedData": {
-    "applicant": { "name":"","fatherName":"","dob":"","pan":"","pan4thChar":"","aadhaarLast4":"","gender":"","address":"","pinCode":"","age":"" },
-    "coApplicant": { "name":"","dob":"","pan":"","gender":"","address":"","pinCode":"" },
-    "business": { "name":"","registrationNo":"","address":"","type":"" }
+    "applicant": {"name":"","fatherName":"","dob":"","pan":"","pan4thChar":"","aadhaarLast4":"","gender":"","address":"","pinCode":"","state":"","age":"","language":""},
+    "coApplicant": {"name":"","dob":"","pan":"","gender":"","address":"","pinCode":""},
+    "business": {"name":"","gstNo":"","address":"","type":"","udyamNo":""},
+    "loan": {"borrowerName":"","amount":"","emi":"","tenure":"","date":""}
   },
+  "keyPoints": ["Key fact 1","Key fact 2","...up to 12"],
   "checkResults": [
-    { "id":"A1","description":"Valid Aadhaar provided?","result":"PASS","reason":"12-digit Aadhaar visible","risk":"NA" }
+    {"id":"A1","description":"...","result":"PASS","reason":"...","risk":"HIGH"}
   ],
-  "businessPhoto": { "businessType":"","items":[],"valuationMin":0,"valuationMax":0,"notes":"" },
-  "summary": { "totalChecks":0,"passed":0,"failed":0,"cannotVerify":0,"highRisk":0,"mediumRisk":0,"lowRisk":0,"passRate":0 },
+  "photoAnalysis": {
+    "businessType": "",
+    "items": [],
+    "valuationMin": 0,
+    "valuationMax": 0,
+    "photoMatchResult": "",
+    "notes": ""
+  },
+  "summary": {"totalChecks":0,"passed":0,"failed":0,"cannotVerify":0,"highRisk":0,"mediumRisk":0,"lowRisk":0,"passRate":0},
   "auditObservations": []
-}` });
+}`});
 
-  return [{ role:'user', content }];
+  return [{role:'user',content}];
+}
+
+function getLOSLMSForDoc(doc) {
+  if (S.csvData[doc.custId]) return S.csvData[doc.custId];
+  const ids = ['los_name','lms_name','los_dob','lms_dob','los_pan','lms_pan','los_gender','lms_risk','los_address','los_pin','lms_branch'];
+  const d = {};
+  ids.forEach(id => { const el=document.getElementById(id); if(el&&el.value.trim()) d[id]=el.value.trim(); });
+  return d;
+}
+
+function guessDocLabel(name) {
+  const n = name.toLowerCase();
+  if (n.includes('aadhaar')||n.includes('aadhar')||n.includes('uid')) return 'Aadhaar Card';
+  if (n.includes('pan')) return 'PAN Card';
+  if (n.includes('photo')||n.includes('shop')||n.includes('biz')||n.includes('visit')) return 'Business Visit Photo';
+  if (n.includes('agree')||n.includes('kfs')||n.includes('loan')) return 'Loan Agreement / KFS';
+  if (n.includes('gst')||n.includes('udyam')||n.includes('msme')) return 'GST / Udyam Certificate';
+  if (n.includes('bank')||n.includes('statement')) return 'Bank Statement';
+  if (n.includes('co')) return 'Co-Applicant Document';
+  return 'KYC Document';
 }
 
 /* ── RUN ALL ── */
 async function runAll() {
   if (!S.apiKey) { showRunError('Please enter your Anthropic API key in Settings first.'); return; }
-  if (!S.docs.length) { showRunError('Upload at least one document.'); return; }
+  if (!S.docs.length) { showRunError('Upload a ZIP or load demo files first.'); return; }
   hideRunError();
-
-  const concurrency = Math.max(1, Math.min(5, parseInt(document.getElementById('concurrency').value) || 2));
-  const losLms = getLOSLMS();
-
-  // reset all docs
-  S.docs.forEach(d => { d.status = 'queued'; d.result = null; d.error = null; });
-
+  const concurrency = Math.max(1, Math.min(5, parseInt(document.getElementById('concurrency').value)||2));
+  S.docs.forEach(d => { d.status='queued'; d.result=null; d.error=null; updateCustStatus(d); });
   document.getElementById('runBtn').disabled = true;
   document.getElementById('runBtn').innerHTML = '<span class="spinner"></span> Running...';
   document.getElementById('navDash').disabled = false;
   document.getElementById('navReports').disabled = false;
-
   navTo('dashboard');
-
-  // process in batches
-  const queue = S.docs.map((d, i) => i);
-  const workers = Array.from({ length: concurrency }, () => processNext(queue, losLms));
-  await Promise.all(workers);
-
+  const queue = S.docs.map((_,i)=>i);
+  await Promise.all(Array.from({length:concurrency},()=>processNext(queue)));
   document.getElementById('runBtn').disabled = false;
   document.getElementById('runBtn').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run KYC Audit';
   renderDashboard();
 }
 
-async function processNext(queue, losLms) {
+async function processNext(queue) {
   while (queue.length) {
     const idx = queue.shift();
-    const doc = S.docs[idx];
-    if (!doc) continue;
-    doc.status = 'running';
-    renderBulkTable();
+    const doc = S.docs[idx]; if (!doc) continue;
+    doc.status = 'running'; updateCustStatus(doc); renderBulkTable();
     try {
-      const messages = await buildMessages(doc, losLms);
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      const messages = await buildMessages(doc);
+      const resp = await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          'x-api-key': S.apiKey,
-          'anthropic-version':'2023-06-01',
-          'anthropic-dangerous-direct-browser-access':'true',
-        },
-        body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:4000, messages }),
+        headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4000,messages}),
       });
-      if (!resp.ok) { const e = await resp.json(); throw new Error(e.error?.message || 'API error ' + resp.status); }
+      if (!resp.ok) { const e=await resp.json(); throw new Error(e.error?.message||'API error '+resp.status); }
       const data = await resp.json();
       const raw = (data.content||[]).map(b=>b.text||'').join('').replace(/```json|```/g,'').trim();
       doc.result = JSON.parse(raw);
       doc.status = 'done';
-    } catch(e) {
-      doc.error = e.message;
-      doc.status = 'error';
-    }
-    renderBulkTable();
-    updateDashHero();
+    } catch(e) { doc.error=e.message; doc.status='error'; }
+    updateCustStatus(doc); renderBulkTable(); updateDashHero();
   }
 }
 
-function showRunError(msg) { const el = document.getElementById('runError'); el.textContent = msg; el.style.display = 'block'; }
-function hideRunError() { document.getElementById('runError').style.display = 'none'; }
+function updateCustStatus(doc) {
+  const el = document.getElementById('cs-' + doc.id);
+  if (!el) return;
+  el.className = 'cust-status ' + doc.status;
+  el.textContent = doc.status.charAt(0).toUpperCase() + doc.status.slice(1);
+}
+
+function showRunError(m) { const e=document.getElementById('runError'); e.textContent=m; e.style.display='block'; }
+function hideRunError() { document.getElementById('runError').style.display='none'; }
 
 /* ── DASHBOARD ── */
 function renderDashboard() {
-  const done = S.docs.filter(d => d.status === 'done' && d.result);
-  const total = S.docs.length;
-  const running = S.docs.filter(d => d.status === 'running').length;
-
-  // lede
-  if (running) {
-    document.getElementById('dashLede').textContent = `Processing ${running} file${running>1?'s':''} — results update in real time.`;
-  } else {
-    document.getElementById('dashLede').textContent = `${done.length} of ${total} files processed successfully.`;
-  }
-
-  updateDashHero();
-  renderPassFailCards();
-  renderCharts();
-  renderBulkTable();
-  updateFilterCounts();
+  updateDashHero(); renderPassFailCards(); renderCharts(); renderBulkTable(); updateFilterCounts();
+  const done = S.docs.filter(d=>d.status==='done'&&d.result);
+  const running = S.docs.filter(d=>d.status==='running').length;
+  document.getElementById('dashLede').textContent = running
+    ? `Processing ${running} file${running>1?'s':''} — results update in real time.`
+    : `${done.length} of ${S.docs.length} customer files processed.`;
 }
 
 function updateDashHero() {
-  const done = S.docs.filter(d => d.status === 'done' && d.result);
-  const total = S.docs.length;
-  const totalChecks = done.reduce((a,d) => a + (d.result?.summary?.totalChecks||0), 0);
-  const totalPass = done.reduce((a,d) => a + (d.result?.summary?.passed||0), 0);
-  const totalFail = done.reduce((a,d) => a + (d.result?.summary?.failed||0), 0);
-  const totalHigh = done.reduce((a,d) => a + (d.result?.summary?.highRisk||0), 0);
-  const totalMed  = done.reduce((a,d) => a + (d.result?.summary?.mediumRisk||0), 0);
-  const totalLow  = done.reduce((a,d) => a + (d.result?.summary?.lowRisk||0), 0);
-
-  // count files that fully passed (0 failures)
-  const filesPassed = done.filter(d => (d.result?.summary?.failed||0) === 0).length;
-  const pct = total > 0 ? Math.round((done.length / total) * 100) : 0;
-
-  document.getElementById('heroPass').textContent = filesPassed;
-  document.getElementById('heroTotal').textContent = total;
-  document.getElementById('heroSub').textContent = `· ${done.length} audited · ${total - done.length} pending`;
-  document.getElementById('heroProg').style.width = pct + '%';
-  document.getElementById('heroProgLabel').textContent = pct + '%';
-
-  const bandTotal = totalHigh + totalMed + totalLow || 1;
-  document.getElementById('heroBars').innerHTML = [
-    { label:'High risk', color:'#C04646', count:totalHigh },
-    { label:'Medium risk', color:'#C28A1B', count:totalMed },
-    { label:'Low risk', color:'#2E9461', count:totalLow },
-    { label:'Passed checks', color:'#1E4FE0', count:totalPass },
-  ].map(b => `
-    <div class="band-bar-row">
-      <div class="band-bar-label"><div class="band-dot" style="background:${b.color}"></div>${b.label}</div>
-      <div class="band-bar-track"><div class="band-bar-fill" style="background:${b.color};width:${Math.round(b.count/(bandTotal)*100)}%"></div></div>
-      <div class="band-bar-count" style="color:${b.color}">${b.count}</div>
-    </div>`).join('');
-}
-
-function renderPassFailCards() {
-  const done = S.docs.filter(d => d.status === 'done' && d.result);
-  const totalChecks = done.reduce((a,d) => a + (d.result?.summary?.totalChecks||0), 0);
-  const totalPass   = done.reduce((a,d) => a + (d.result?.summary?.passed||0), 0);
-  const totalFail   = done.reduce((a,d) => a + (d.result?.summary?.failed||0), 0);
-  const totalHigh   = done.reduce((a,d) => a + (d.result?.summary?.highRisk||0), 0);
-  const totalMed    = done.reduce((a,d) => a + (d.result?.summary?.mediumRisk||0), 0);
-  const passRate    = totalChecks > 0 ? Math.round((totalPass/totalChecks)*100) : 0;
-
-  document.getElementById('passfailCards').innerHTML = `
-    <div class="pf-card pf-meta"><div class="pf-num">${S.docs.length}</div><div class="pf-label">Total files</div><div class="pf-sub">${done.length} completed</div></div>
-    <div class="pf-card pf-meta"><div class="pf-num">${totalChecks}</div><div class="pf-label">Total checks run</div><div class="pf-sub">across all files</div></div>
-    <div class="pf-card pf-pass"><div class="pf-num">${totalPass}</div><div class="pf-label">Checks passed</div><div class="pf-sub">${passRate}% pass rate</div></div>
-    <div class="pf-card pf-fail"><div class="pf-num">${totalFail}</div><div class="pf-label">Checks failed</div><div class="pf-sub">${100-passRate}% fail rate</div></div>
-    <div class="pf-card pf-high"><div class="pf-num">${totalHigh}</div><div class="pf-label">High risk obs.</div><div class="pf-sub">${totalMed} medium · ${done.reduce((a,d)=>a+(d.result?.summary?.lowRisk||0),0)} low</div></div>`;
-}
-
-function renderCharts() {
-  const done = S.docs.filter(d => d.status === 'done' && d.result);
-  if (!done.length) return;
-
-  if (S.charts.pf) S.charts.pf.destroy();
-  if (S.charts.risk) S.charts.risk.destroy();
-
-  const labels = done.map(d => d.result.fileName || d.name).map(n => n.length > 14 ? n.slice(0,12)+'…' : n);
-  S.charts.pf = new Chart(document.getElementById('passFailChart'), {
-    type:'bar',
-    data:{
-      labels,
-      datasets:[
-        { label:'Pass', data:done.map(d=>d.result.summary?.passed||0), backgroundColor:'#2E9461' },
-        { label:'Fail', data:done.map(d=>d.result.summary?.failed||0), backgroundColor:'#C04646' },
-        { label:"Can't verify", data:done.map(d=>d.result.summary?.cannotVerify||0), backgroundColor:'#9AA3B2' },
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ labels:{ font:{size:11}, boxWidth:10 } } },
-      scales:{
-        x:{ ticks:{ font:{size:10}, color:'#6B7385' }, grid:{ color:'#EEF0F4' } },
-        y:{ ticks:{ font:{size:10}, color:'#6B7385' }, grid:{ color:'#EEF0F4' } }
-      }
-    }
-  });
-
+  const done = S.docs.filter(d=>d.status==='done'&&d.result);
+  const filesPassed = done.filter(d=>(d.result.summary?.failed||0)===0).length;
+  const totalChecks = done.reduce((a,d)=>a+(d.result.summary?.totalChecks||0),0);
+  const totalPass = done.reduce((a,d)=>a+(d.result.summary?.passed||0),0);
   const high = done.reduce((a,d)=>a+(d.result.summary?.highRisk||0),0);
   const med  = done.reduce((a,d)=>a+(d.result.summary?.mediumRisk||0),0);
   const low  = done.reduce((a,d)=>a+(d.result.summary?.lowRisk||0),0);
-  S.charts.risk = new Chart(document.getElementById('riskChart'), {
-    type:'doughnut',
-    data:{
-      labels:['High risk','Medium risk','Low risk'],
-      datasets:[{ data:[high,med,low], backgroundColor:['#C04646','#C28A1B','#2E9461'], borderWidth:0 }]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ position:'bottom', labels:{ font:{size:11}, boxWidth:10 } } }
-    }
-  });
+  const pct = S.docs.length > 0 ? Math.round((done.length/S.docs.length)*100) : 0;
+  document.getElementById('heroPass').textContent = filesPassed;
+  document.getElementById('heroTotal').textContent = S.docs.length;
+  document.getElementById('heroSub').textContent = `· ${done.length} audited · ${S.docs.length-done.length} pending`;
+  document.getElementById('heroProg').style.width = pct+'%';
+  document.getElementById('heroProgLabel').textContent = pct+'%';
+  const bt = high+med+low||1;
+  document.getElementById('heroBars').innerHTML = [
+    {label:'High risk',color:'#C04646',count:high},
+    {label:'Medium risk',color:'#C28A1B',count:med},
+    {label:'Low risk',color:'#2E9461',count:low},
+    {label:'Checks passed',color:'#1E4FE0',count:totalPass},
+  ].map(b=>`<div class="band-bar-row"><div class="band-bar-label"><div class="band-dot" style="background:${b.color}"></div>${b.label}</div><div class="band-bar-track"><div class="band-bar-fill" style="background:${b.color};width:${Math.round(b.count/bt*100)}%"></div></div><div class="band-bar-count" style="color:${b.color}">${b.count}</div></div>`).join('');
+}
+
+function renderPassFailCards() {
+  const done = S.docs.filter(d=>d.status==='done'&&d.result);
+  const tc=done.reduce((a,d)=>a+(d.result.summary?.totalChecks||0),0);
+  const tp=done.reduce((a,d)=>a+(d.result.summary?.passed||0),0);
+  const tf=done.reduce((a,d)=>a+(d.result.summary?.failed||0),0);
+  const th=done.reduce((a,d)=>a+(d.result.summary?.highRisk||0),0);
+  const tm=done.reduce((a,d)=>a+(d.result.summary?.mediumRisk||0),0);
+  const pr=tc>0?Math.round((tp/tc)*100):0;
+  document.getElementById('passfailCards').innerHTML=`
+    <div class="pf-card pf-meta"><div class="pf-num">${S.docs.length}</div><div class="pf-label">Total files</div><div class="pf-sub">${done.length} completed</div></div>
+    <div class="pf-card pf-meta"><div class="pf-num">${tc}</div><div class="pf-label">Total checks</div><div class="pf-sub">${S.checklist.length} rules applied</div></div>
+    <div class="pf-card pf-pass"><div class="pf-num">${tp}</div><div class="pf-label">Checks passed</div><div class="pf-sub">${pr}% pass rate</div></div>
+    <div class="pf-card pf-fail"><div class="pf-num">${tf}</div><div class="pf-label">Checks failed</div><div class="pf-sub">${100-pr}% fail rate</div></div>
+    <div class="pf-card pf-high"><div class="pf-num">${th}</div><div class="pf-label">High risk obs.</div><div class="pf-sub">${tm} medium risk</div></div>`;
+}
+
+function renderCharts() {
+  const done = S.docs.filter(d=>d.status==='done'&&d.result);
+  if (!done.length) return;
+  if (S.charts.pf) S.charts.pf.destroy();
+  if (S.charts.risk) S.charts.risk.destroy();
+  const labels = done.slice(0,20).map(d=>(d.custId||d.name||'').slice(0,10));
+  S.charts.pf = new Chart(document.getElementById('passFailChart'),{type:'bar',data:{labels,datasets:[{label:'Pass',data:done.slice(0,20).map(d=>d.result.summary?.passed||0),backgroundColor:'#2E9461'},{label:'Fail',data:done.slice(0,20).map(d=>d.result.summary?.failed||0),backgroundColor:'#C04646'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:10},boxWidth:10}}},scales:{x:{ticks:{font:{size:9},color:'#6B7385'},grid:{color:'#EEF0F4'}},y:{ticks:{font:{size:9},color:'#6B7385'},grid:{color:'#EEF0F4'}}}}});
+  const h=done.reduce((a,d)=>a+(d.result.summary?.highRisk||0),0);
+  const m=done.reduce((a,d)=>a+(d.result.summary?.mediumRisk||0),0);
+  const l=done.reduce((a,d)=>a+(d.result.summary?.lowRisk||0),0);
+  S.charts.risk = new Chart(document.getElementById('riskChart'),{type:'doughnut',data:{labels:['High','Medium','Low'],datasets:[{data:[h,m,l],backgroundColor:['#C04646','#C28A1B','#2E9461'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11},boxWidth:10}}}}});
 }
 
 /* ── BULK TABLE ── */
 let currentFilter = 'all';
-let searchQuery = '';
-
-function setFilter(f, btn) {
-  currentFilter = f;
-  document.querySelectorAll('#filterSeg button').forEach(b => b.classList.toggle('on', b.dataset.filter === f));
-  renderBulkTable();
-}
-function filterTable() { searchQuery = document.getElementById('searchInput').value.toLowerCase(); renderBulkTable(); }
-
+function setFilter(f,btn) { currentFilter=f; document.querySelectorAll('#filterSeg button').forEach(b=>b.classList.toggle('on',b.dataset.filter===f)); renderBulkTable(); }
+function filterTable() { S.searchQuery=document.getElementById('searchInput').value.toLowerCase(); renderBulkTable(); }
 function updateFilterCounts() {
-  const done = S.docs.filter(d => d.status === 'done' && d.result);
-  document.getElementById('fc-all').textContent  = S.docs.length;
-  document.getElementById('fc-pass').textContent = done.filter(d => (d.result.summary?.failed||0) === 0).length;
-  document.getElementById('fc-fail').textContent = done.filter(d => (d.result.summary?.failed||0) > 0).length;
-  document.getElementById('fc-high').textContent = done.filter(d => (d.result.summary?.highRisk||0) > 0).length;
-  document.getElementById('tableSubtitle').textContent = `${done.length} of ${S.docs.length} files processed`;
+  const done=S.docs.filter(d=>d.status==='done'&&d.result);
+  document.getElementById('fc-all').textContent=S.docs.length;
+  document.getElementById('fc-pass').textContent=done.filter(d=>(d.result.summary?.failed||0)===0).length;
+  document.getElementById('fc-fail').textContent=done.filter(d=>(d.result.summary?.failed||0)>0).length;
+  document.getElementById('fc-high').textContent=done.filter(d=>(d.result.summary?.highRisk||0)>0).length;
+  document.getElementById('tableSubtitle').textContent=`${done.length} of ${S.docs.length} processed`;
 }
 
 function renderBulkTable() {
   updateFilterCounts();
   let rows = S.docs.filter(d => {
-    if (searchQuery && !d.name.toLowerCase().includes(searchQuery)) return false;
-    if (currentFilter === 'pass') return d.status === 'done' && (d.result?.summary?.failed||0) === 0;
-    if (currentFilter === 'fail') return d.status === 'done' && (d.result?.summary?.failed||0) > 0;
-    if (currentFilter === 'high') return d.status === 'done' && (d.result?.summary?.highRisk||0) > 0;
+    const q = S.searchQuery;
+    if (q && !d.custId.toLowerCase().includes(q) && !(d.name||'').toLowerCase().includes(q) && !(d.result?.customerName||'').toLowerCase().includes(q)) return false;
+    if (currentFilter==='pass') return d.status==='done'&&(d.result?.summary?.failed||0)===0;
+    if (currentFilter==='fail') return d.status==='done'&&(d.result?.summary?.failed||0)>0;
+    if (currentFilter==='high') return d.status==='done'&&(d.result?.summary?.highRisk||0)>0;
     return true;
   });
-
   const table = document.getElementById('bulkTable');
-  if (!rows.length) { table.innerHTML = '<div class="empty-row">No files match the current filter.</div>'; return; }
-
+  if (!rows.length) { table.innerHTML='<div class="empty-row">No files match the current filter.</div>'; return; }
   table.innerHTML = `
-    <div class="bulk-row bulk-head">
-      <div>#</div><div>File</div><div>Checklist</div><div>Risk</div><div>Rate</div><div></div>
-    </div>
-    ${rows.map((d, i) => {
-      const s = d.result?.summary || {};
-      const pass = s.passed||0, fail = s.failed||0, cant = s.cannotVerify||0, total = s.totalChecks||1;
-      const rate = Math.round((pass/total)*100);
-      const high = s.highRisk||0, med = s.mediumRisk||0, low = s.lowRisk||0;
-      const riskLabel = high>0?'high':med>0?'med':'low';
-      const riskText  = high>0?'High risk':med>0?'Medium risk':'Low risk';
-
-      if (d.status === 'queued') return `<div class="bulk-row"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.name)}</div><div class="bn-sub">Queued</div></div><div>—</div><div>—</div><div>—</div><div></div></div>`;
-      if (d.status === 'running') return `<div class="bulk-row"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.name)}</div><div class="bn-sub">Processing…</div></div><div><div class="mini-spinner"></div></div><div>—</div><div>—</div><div></div></div>`;
-      if (d.status === 'error') return `<div class="bulk-row error"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.name)}</div><div class="bn-sub" style="color:#C04646">${esc(d.error||'Error')}</div></div><div>—</div><div>—</div><div>—</div><div></div></div>`;
-
+    <div class="bulk-row bulk-head"><div>#</div><div>Customer</div><div>Checklist</div><div>Risk</div><div>Rate</div><div>Key Points</div><div></div></div>
+    ${rows.map((d,i)=>{
+      const s=d.result?.summary||{};
+      const pass=s.passed||0,fail=s.failed||0,cant=s.cannotVerify||0,total=s.totalChecks||1;
+      const rate=Math.round((pass/total)*100);
+      const high=s.highRisk||0,med=s.mediumRisk||0;
+      const riskCls=high>0?'high':med>0?'med':'low';
+      const riskText=high>0?'High':med>0?'Medium':'Low';
+      const custName=d.result?.customerName||d.result?.extractedData?.applicant?.name||d.name||'';
+      if (d.status==='queued') return `<div class="bulk-row"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.custId)}</div><div class="bn-sub">Queued</div></div><div>—</div><div>—</div><div>—</div><div>—</div><div></div></div>`;
+      if (d.status==='running') return `<div class="bulk-row"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.custId)}</div><div class="bn-sub">Processing…</div></div><div><div class="mini-spinner"></div></div><div>—</div><div>—</div><div>—</div><div></div></div>`;
+      if (d.status==='error') return `<div class="bulk-row"><div class="b-i">${i+1}</div><div><div class="bn-title">${esc(d.custId)}</div><div class="bn-sub" style="color:var(--red)">${esc(d.error||'Error')}</div></div><div>—</div><div>—</div><div>—</div><div>—</div><div></div></div>`;
       return `<div class="bulk-row" onclick="openDetail('${d.id}')">
         <div class="b-i">${i+1}</div>
-        <div><div class="bn-title">${esc(d.name)}</div><div class="bn-sub">${d.result?.extractedData?.applicant?.name||''}</div></div>
-        <div>
-          <div class="mini-stack">
-            <div style="width:${Math.round(pass/total*100)}%;background:#2E9461"></div>
-            <div style="width:${Math.round(fail/total*100)}%;background:#C04646"></div>
-            <div style="width:${Math.round(cant/total*100)}%;background:#9AA3B2"></div>
-          </div>
-          <div class="mini-counts">
-            <span style="color:#2E9461">${pass}✓</span>
-            <span style="color:#C04646">${fail}✗</span>
-            ${cant?`<span style="color:#9AA3B2">${cant}?</span>`:''}
-          </div>
-        </div>
-        <div><span class="pill pill-${riskLabel}">${riskText}</span></div>
+        <div><div class="bn-title">${esc(d.custId)}</div><div class="bn-sub">${esc(custName)}</div></div>
+        <div><div class="mini-stack"><div style="width:${Math.round(pass/total*100)}%;background:#2E9461"></div><div style="width:${Math.round(fail/total*100)}%;background:#C04646"></div></div><div class="mini-counts"><span style="color:#2E9461">${pass}✓</span><span style="color:#C04646">${fail}✗</span>${cant?`<span style="color:#9AA3B2">${cant}?</span>`:''}</div></div>
+        <div><span class="pill pill-${riskCls}">${riskText} risk</span></div>
         <div style="font-weight:600;font-size:14px;color:${rate>=70?'#2E9461':rate>=50?'#C28A1B':'#C04646'}">${rate}%</div>
+        <div><button class="ghost-btn" style="font-size:11px;padding:4px 9px" onclick="event.stopPropagation();openKeyPoints('${d.id}')">📋 View Points</button></div>
         <div class="b-action">›</div>
       </div>`;
     }).join('')}`;
 }
 
-/* ── DETAIL OVERLAY ── */
-function openDetail(id) {
-  const doc = S.docs.find(d => d.id === id);
-  if (!doc || !doc.result) return;
-  const r = doc.result;
-  const s = r.summary || {};
-  const pass = s.passed||0, fail = s.failed||0, cant = s.cannotVerify||0, total = s.totalChecks||1;
-  const rate = Math.round((pass/total)*100);
-  const high = s.highRisk||0, med = s.mediumRisk||0;
-  const riskLabel = high>0?'High risk':med>0?'Medium risk':'Low risk';
-  const riskColor = high>0?'var(--red)':med>0?'var(--amber)':'var(--green)';
-
-  const app = r.extractedData?.applicant || {};
-  const coapp = r.extractedData?.coApplicant || {};
-  const biz = r.extractedData?.business || {};
-
-  const extFields = (obj) => Object.entries(obj).filter(([k,v])=>v&&v!=='').map(([k,v])=>`
-    <div class="ext-field"><div class="ef-label">${formatKey(k)}</div><div class="ef-val">${esc(v)}</div></div>`).join('');
-
-  const checks = (r.checkResults||[]).map(c => {
-    const cls = c.result==='PASS'?'pass':c.result==='FAIL'?'fail':'cant';
-    const icon = c.result==='PASS'?'✓':c.result==='FAIL'?'✗':'?';
-    const riskBadge = (c.result!=='PASS'&&c.risk&&c.risk!=='NA')
-      ?`<span class="ci-risk risk-${c.risk==='HIGH'?'high':c.risk==='MEDIUM'?'med':'low'}">${c.risk}</span>`:'';
-    return `<div class="check-item ${cls}"><span class="ci-icon">${icon}</span><div><span class="ci-id">${c.id}</span>${riskBadge} ${esc(c.description)}${c.reason?`<div style="font-size:11px;opacity:.75;margin-top:2px">${esc(c.reason)}</div>`:''}</div></div>`;
-  }).join('');
-
-  const obs = r.auditObservations?.length?`<div class="obs-box"><div class="obs-title">⚠ Audit Observations</div>${r.auditObservations.map(o=>`<div class="obs-item">${esc(o)}</div>`).join('')}</div>`:'';
-  const bizBox = r.businessPhoto?.businessType?`<div class="biz-box"><div class="biz-box-title">📷 Business Analysis</div><strong>${esc(r.businessPhoto.businessType)}</strong><div class="biz-valuation" style="margin-top:6px">₹${(r.businessPhoto.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.businessPhoto.valuationMax||0).toLocaleString('en-IN')}</div>${r.businessPhoto.items?.length?`<div style="font-size:12px;color:var(--muted);margin-top:4px">Items: ${r.businessPhoto.items.join(', ')}</div>`:''}</div>`:'';
-
+/* ── KEY POINTS OVERLAY ── */
+function openKeyPoints(id) {
+  const doc = S.docs.find(d=>d.id===id);
+  if (!doc?.result) return;
+  const kp = doc.result.keyPoints || [];
+  const app = doc.result.extractedData?.applicant || {};
+  const loan = doc.result.extractedData?.loan || {};
+  const biz = doc.result.extractedData?.business || {};
   document.getElementById('detailPane').innerHTML = `
     <div class="dive-head">
+      <div><div class="eyebrow">Key Points — ${esc(doc.custId)}</div><h3>${esc(doc.result.customerName||app.name||doc.custId)}</h3></div>
+      <button class="ghost-btn" onclick="closeDetail()">✕</button>
+    </div>
+    <div style="padding:20px 24px;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div>
-        <div class="eyebrow">File Detail</div>
-        <h3>${esc(doc.name)}</h3>
+        <div class="dive-label" style="margin-bottom:10px">Important Points from Documents</div>
+        ${kp.length ? kp.map(p=>`<div class="kp-item" style="margin-bottom:6px;padding-left:16px;position:relative;font-size:13px;line-height:1.55;color:var(--ink-2)">${esc(p)}</div>`).join('') : '<div style="color:var(--muted);font-size:13px">No key points extracted.</div>'}
       </div>
-      <button class="ghost-btn" onclick="closeDetail()">✕ Close</button>
+      <div>
+        <div class="dive-label" style="margin-bottom:8px">Extracted Applicant Details</div>
+        <div class="kp-grid">
+          ${Object.entries(app).filter(([k,v])=>v&&v!=='').map(([k,v])=>`<div class="kp-card"><div class="kp-card-label">${formatKey(k)}</div><div class="kp-card-val">${esc(v)}</div></div>`).join('')}
+        </div>
+        ${Object.values(loan).some(v=>v) ? `<div class="dive-label" style="margin:12px 0 8px">Loan Details</div><div class="kp-grid">${Object.entries(loan).filter(([k,v])=>v&&v!=='').map(([k,v])=>`<div class="kp-card"><div class="kp-card-label">${formatKey(k)}</div><div class="kp-card-val">${esc(v)}</div></div>`).join('')}</div>` : ''}
+        ${Object.values(biz).some(v=>v) ? `<div class="dive-label" style="margin:12px 0 8px">Business Details</div><div class="kp-grid">${Object.entries(biz).filter(([k,v])=>v&&v!=='').map(([k,v])=>`<div class="kp-card"><div class="kp-card-label">${formatKey(k)}</div><div class="kp-card-val">${esc(v)}</div></div>`).join('')}</div>` : ''}
+        ${doc.result.photoAnalysis?.businessType ? `
+        <div class="dive-label" style="margin:12px 0 8px">Business Photo Analysis</div>
+        <div class="biz-box" style="margin-bottom:0">
+          <div class="biz-box-title">📷 ${esc(doc.result.photoAnalysis.businessType)}</div>
+          <div class="biz-valuation">₹${(doc.result.photoAnalysis.valuationMin||0).toLocaleString('en-IN')} – ₹${(doc.result.photoAnalysis.valuationMax||0).toLocaleString('en-IN')}</div>
+          ${doc.result.photoAnalysis.photoMatchResult?`<div style="font-size:12px;margin-top:6px;color:var(--ink-2)"><strong>Photo match:</strong> ${esc(doc.result.photoAnalysis.photoMatchResult)}</div>`:''}
+          ${(doc.result.photoAnalysis.items||[]).length?`<div style="font-size:12px;margin-top:4px;color:var(--muted)">Items: ${doc.result.photoAnalysis.items.join(', ')}</div>`:''}
+        </div>` : ''}
+      </div>
+    </div>`;
+  document.getElementById('detailOverlay').style.display = 'grid';
+}
+
+/* ── FULL DETAIL OVERLAY ── */
+function openDetail(id) {
+  const doc = S.docs.find(d=>d.id===id);
+  if (!doc?.result) return;
+  const r = doc.result;
+  const s = r.summary||{};
+  const pass=s.passed||0,fail=s.failed||0,cant=s.cannotVerify||0,total=s.totalChecks||1;
+  const rate=Math.round((pass/total)*100);
+  const high=s.highRisk||0,med=s.mediumRisk||0;
+  const riskColor=high>0?'var(--red)':med>0?'var(--amber)':'var(--green)';
+  const riskLabel=high>0?'High risk':med>0?'Medium risk':'Low risk';
+  const app=r.extractedData?.applicant||{};
+  const extRows=Object.entries(app).filter(([k,v])=>v&&v!=='').map(([k,v])=>`<div class="ext-field"><div class="ef-label">${formatKey(k)}</div><div class="ef-val">${esc(v)}</div></div>`).join('');
+  const checks=(r.checkResults||[]).map(c=>{
+    const cls=c.result==='PASS'?'pass':c.result==='FAIL'?'fail':'cant';
+    const icon=c.result==='PASS'?'✓':c.result==='FAIL'?'✗':'?';
+    const rb=(c.result!=='PASS'&&c.risk&&c.risk!=='NA')?`<span class="ci-risk risk-${c.risk==='HIGH'?'HIGH':c.risk==='MEDIUM'?'MEDIUM':'LOW'}">${c.risk}</span>`:'';
+    return `<div class="check-item ${cls}"><span class="ci-icon">${icon}</span><div><span class="ci-id">${c.id}</span>${rb} ${esc(c.description)}${c.reason?`<div style="font-size:11px;opacity:.75;margin-top:2px">${esc(c.reason)}</div>`:''}</div></div>`;
+  }).join('');
+  const obs=r.auditObservations?.length?`<div class="obs-box"><div class="obs-title">⚠ Audit Observations</div>${r.auditObservations.map(o=>`<div class="obs-item">${esc(o)}</div>`).join('')}</div>`:'';
+  const photo=r.photoAnalysis?.businessType?`<div class="photo-box"><div class="photo-box-title">📷 Photo Analysis</div><strong>${esc(r.photoAnalysis.businessType)}</strong><div class="biz-valuation" style="margin-top:4px">₹${(r.photoAnalysis.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.photoAnalysis.valuationMax||0).toLocaleString('en-IN')}</div>${r.photoAnalysis.photoMatchResult?`<div style="font-size:12px;margin-top:5px"><strong>Face match:</strong> ${esc(r.photoAnalysis.photoMatchResult)}</div>`:''}</div>`:'';
+  const kpBox=r.keyPoints?.length?`<div class="key-points-box"><div class="kp-title">📌 Key Points</div>${r.keyPoints.map(p=>`<div class="kp-item">${esc(p)}</div>`).join('')}</div>`:'';
+  document.getElementById('detailPane').innerHTML=`
+    <div class="dive-head">
+      <div><div class="eyebrow">File Detail — ${esc(doc.custId)}</div><h3>${esc(r.customerName||app.name||doc.custId)}</h3></div>
+      <div style="display:flex;gap:8px"><button class="ghost-btn" onclick="openKeyPoints('${doc.id}')">📋 Key Points</button><button class="ghost-btn" onclick="downloadFileReport('${doc.id}')">⬇ Report</button><button class="ghost-btn" onclick="closeDetail()">✕</button></div>
     </div>
     <div class="dive-body">
       <div class="dive-col">
-        <div class="applicant">${esc(app.name||r.fileName||doc.name)}</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="applicant">${esc(r.customerName||app.name||doc.custId)}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
           <span class="pill ${fail===0?'pill-pass':'pill-fail'}">${fail===0?'✓ All checks passed':'✗ '+fail+' check'+(fail>1?'s':'')+' failed'}</span>
-          <span class="pill" style="background:var(--surface-2);color:var(--muted)">${rate}% pass rate</span>
+          <span class="pill pill-cant">${rate}% pass rate</span>
         </div>
         <div class="detail-score-row">
-          <div><div class="ds-num" style="color:${riskColor}">${rate}<span>%</span></div></div>
-          <div style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
-            <div>✓ ${pass} passed</div>
-            <div style="color:var(--red)">✗ ${fail} failed</div>
-            <div>? ${cant} unverifiable</div>
+          <div class="ds-num" style="color:${riskColor}">${rate}<span>%</span></div>
+          <div style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)">
+            <div>✓ ${pass} passed</div><div style="color:var(--red)">✗ ${fail} failed</div><div>? ${cant} unverified</div>
           </div>
         </div>
         <div class="recommendation" style="border-color:${riskColor}">
           <div class="rec-label" style="color:${riskColor}">${riskLabel}</div>
-          <div class="rec-title">${fail===0?'File cleared — no issues found':high>0?'Immediate review required':med>0?'Conditional — review flagged items':'Minor observations noted'}</div>
-          <div class="rec-reasoning">${r.auditObservations?.length?r.auditObservations[0]:(fail===0?'All KYC checks passed. File is compliant.':'Review the failed checklist items and resolve before proceeding.')}</div>
+          <div class="rec-title">${fail===0?'File cleared':high>0?'Immediate review required':med>0?'Conditional — review flagged items':'Minor observations noted'}</div>
+          <div class="rec-reasoning">${r.auditObservations?.[0]||(fail===0?'All KYC checks passed.':'Review failed items before proceeding.')}</div>
         </div>
-        ${app.name||Object.keys(app).some(k=>app[k]) ? `
-        <div style="margin-top:18px">
-          <div class="dive-label">Extracted — Applicant</div>
-          <div class="ext-grid">${extFields(app)}</div>
-          ${Object.values(coapp).some(v=>v)?`<div class="dive-label" style="margin-top:12px">Co-Applicant</div><div class="ext-grid">${extFields(coapp)}</div>`:''}
-          ${Object.values(biz).some(v=>v)?`<div class="dive-label" style="margin-top:12px">Business</div><div class="ext-grid">${extFields(biz)}</div>`:''}
-        </div>`:''
-        }
-        ${bizBox}
-        <div style="margin-top:16px;display:flex;gap:8px;">
-          <button class="ghost-btn" onclick="downloadFileReport('${id}')">⬇ Download Report</button>
-        </div>
+        ${kpBox}${photo}
+        ${extRows?`<div class="dive-label" style="margin-top:14px">Extracted Fields</div><div class="ext-grid">${extRows}</div>`:''}
       </div>
       <div class="dive-col">
-        <div class="dive-label">Checklist Results (${total} checks)</div>
-        ${obs}
-        ${checks}
+        <div class="dive-label">Checklist (${total} checks)</div>
+        ${obs}${checks}
       </div>
     </div>`;
-
-  document.getElementById('detailOverlay').style.display = 'grid';
+  document.getElementById('detailOverlay').style.display='grid';
 }
-function closeDetail() { document.getElementById('detailOverlay').style.display = 'none'; }
+function closeDetail() { document.getElementById('detailOverlay').style.display='none'; }
 
 /* ── REPORTS PAGE ── */
 function renderReports() {
-  const done = S.docs.filter(d => d.status === 'done' && d.result);
-  const el = document.getElementById('reportsList');
-  if (!done.length) {
-    el.innerHTML = '<div style="text-align:center;padding:60px;color:var(--muted)">No audit results yet. Run an audit first.</div>';
-    return;
-  }
-  el.innerHTML = done.map((d, i) => buildReportCard(d, i)).join('');
+  const done=S.docs.filter(d=>d.status==='done'&&d.result);
+  const el=document.getElementById('reportsList');
+  if (!done.length) { el.innerHTML='<div style="text-align:center;padding:60px;color:var(--muted)">No audit results yet.</div>'; return; }
+  el.innerHTML=done.map((d,i)=>buildReportCard(d,i)).join('');
 }
-
-function buildReportCard(doc, idx) {
-  const r = doc.result;
-  const s = r.summary || {};
-  const pass = s.passed||0, fail = s.failed||0, total = s.totalChecks||1;
-  const rate = Math.round((pass/total)*100);
-  const high = s.highRisk||0, med = s.mediumRisk||0;
-  const riskCls = high>0?'high':med>0?'med':'low';
-  const riskText = high>0?'High Risk':med>0?'Medium Risk':'Low Risk';
-
-  const app = r.extractedData?.applicant || {};
-  const extRows = Object.entries(app).filter(([k,v])=>v&&v!=='')
-    .map(([k,v])=>`<div class="ext-field"><div class="ef-label">${formatKey(k)}</div><div class="ef-val">${esc(v)}</div></div>`).join('');
-
-  const checks = (r.checkResults||[]).map(c => {
-    const cls = c.result==='PASS'?'pass':c.result==='FAIL'?'fail':'cant';
-    const icon = c.result==='PASS'?'✓':c.result==='FAIL'?'✗':'?';
-    const rb = (c.result!=='PASS'&&c.risk&&c.risk!=='NA')?`<span class="ci-risk risk-${c.risk==='HIGH'?'high':c.risk==='MEDIUM'?'med':'low'}">${c.risk}</span>`:'';
+function buildReportCard(doc,idx) {
+  const r=doc.result; const s=r.summary||{};
+  const pass=s.passed||0,fail=s.failed||0,total=s.totalChecks||1;
+  const rate=Math.round((pass/total)*100);
+  const high=s.highRisk||0,med=s.mediumRisk||0;
+  const rCls=high>0?'high':med>0?'med':'low';
+  const rText=high>0?'High Risk':med>0?'Medium Risk':'Low Risk';
+  const app=r.extractedData?.applicant||{};
+  const extRows=Object.entries(app).filter(([k,v])=>v&&v!=='').map(([k,v])=>`<div class="ext-field"><div class="ef-label">${formatKey(k)}</div><div class="ef-val">${esc(v)}</div></div>`).join('');
+  const checks=(r.checkResults||[]).map(c=>{
+    const cls=c.result==='PASS'?'pass':c.result==='FAIL'?'fail':'cant';
+    const icon=c.result==='PASS'?'✓':c.result==='FAIL'?'✗':'?';
+    const rb=(c.result!=='PASS'&&c.risk&&c.risk!=='NA')?`<span class="ci-risk risk-${c.risk==='HIGH'?'HIGH':c.risk==='MEDIUM'?'MEDIUM':'LOW'}">${c.risk}</span>`:'';
     return `<div class="check-item ${cls}"><span class="ci-icon">${icon}</span><div><span class="ci-id">${c.id}</span>${rb} ${esc(c.description)}${c.reason?`<div style="font-size:11px;opacity:.75;margin-top:2px">${esc(c.reason)}</div>`:''}</div></div>`;
   }).join('');
-
-  const obs = r.auditObservations?.length?`<div class="obs-box"><div class="obs-title">⚠ Audit Observations (${r.auditObservations.length})</div>${r.auditObservations.map(o=>`<div class="obs-item">${esc(o)}</div>`).join('')}</div>`:'';
-  const bizBox = r.businessPhoto?.businessType?`<div class="biz-box"><div class="biz-box-title">📷 Business Analysis</div><strong>${esc(r.businessPhoto.businessType)}</strong><div class="biz-valuation" style="margin-top:4px">₹${(r.businessPhoto.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.businessPhoto.valuationMax||0).toLocaleString('en-IN')}</div>${r.businessPhoto.items?.length?`<div style="font-size:12px;color:var(--muted);margin-top:3px">Items: ${r.businessPhoto.items.join(', ')}</div>`:''}</div>`:'';
-
+  const obs=r.auditObservations?.length?`<div class="obs-box"><div class="obs-title">⚠ Audit Observations (${r.auditObservations.length})</div>${r.auditObservations.map(o=>`<div class="obs-item">${esc(o)}</div>`).join('')}</div>`:'';
+  const photo=r.photoAnalysis?.businessType?`<div class="photo-box"><div class="photo-box-title">📷 Business Photo</div><strong>${esc(r.photoAnalysis.businessType)}</strong><div class="biz-valuation" style="margin-top:4px">₹${(r.photoAnalysis.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.photoAnalysis.valuationMax||0).toLocaleString('en-IN')}</div>${r.photoAnalysis.photoMatchResult?`<div style="font-size:12px;margin-top:4px"><strong>Face match:</strong> ${esc(r.photoAnalysis.photoMatchResult)}</div>`:''}</div>`:'';
+  const kpBox=r.keyPoints?.length?`<div class="key-points-box"><div class="kp-title">📌 Key Points (${r.keyPoints.length})</div>${r.keyPoints.map(p=>`<div class="kp-item">${esc(p)}</div>`).join('')}</div>`:'';
   return `
     <div class="report-card">
       <div class="report-card-header" onclick="toggleReport('rb-${idx}','rc-${idx}')">
-        <div class="rch-name">${esc(doc.name)}</div>
-        <div class="rch-pills">
-          <span class="pill pill-pass">${pass} pass</span>
-          <span class="pill pill-fail">${fail} fail</span>
-          <span class="pill" style="background:var(--surface-2);color:var(--muted)">${rate}%</span>
-          <span class="pill pill-${riskCls}">${riskText}</span>
-        </div>
+        <div class="rch-name">${esc(doc.custId)} — ${esc(r.customerName||app.name||'')}</div>
+        <div class="rch-pills"><span class="pill pill-pass">${pass} pass</span><span class="pill pill-fail">${fail} fail</span><span class="pill pill-cant">${rate}%</span><span class="pill pill-${rCls}">${rText}</span></div>
         <span class="rch-chevron" id="rc-${idx}">▼</span>
       </div>
       <div class="report-card-body" id="rb-${idx}">
+        ${kpBox}${obs}${photo}
         ${extRows?`<div class="rb-section"><div class="rb-label">Extracted Fields</div><div class="ext-grid">${extRows}</div></div>`:''}
-        ${obs}${bizBox}
-        <div class="rb-section"><div class="rb-label">Checklist (${total} checks)</div>${checks}</div>
+        <div class="rb-section"><div class="rb-label">Checklist Results</div>${checks}</div>
         <div class="report-actions">
-          <button class="ghost-btn" onclick="downloadFileReportById('${doc.id}')">⬇ Download Report (.txt)</button>
+          <button class="ghost-btn" onclick="openKeyPoints('${doc.id}')">📋 View All Key Points</button>
+          <button class="ghost-btn" onclick="downloadFileReport('${doc.id}')">⬇ Download Report</button>
         </div>
       </div>
     </div>`;
 }
-
-function toggleReport(bodyId, chevId) {
-  const body = document.getElementById(bodyId);
-  const chev = document.getElementById(chevId);
-  const open = body.classList.contains('open');
-  body.classList.toggle('open', !open);
-  if (chev) chev.classList.toggle('open', !open);
+function toggleReport(bId,cId) {
+  const b=document.getElementById(bId); const c=document.getElementById(cId);
+  b.classList.toggle('open'); if(c) c.classList.toggle('open');
 }
 
 /* ── DOWNLOADS ── */
-function downloadFileReportById(id) {
-  const doc = S.docs.find(d => d.id === id);
-  if (doc) downloadFileReport(id);
-}
-
 function downloadFileReport(id) {
-  const doc = S.docs.find(d => d.id === id);
-  if (!doc?.result) return;
-  const r = doc.result;
-  const s = r.summary || {};
-  const rate = s.totalChecks>0 ? Math.round(((s.passed||0)/s.totalChecks)*100) : 0;
-  let txt = '╔══════════════════════════════════════════════════════════╗\n';
-  txt += '║         KYC AUDIT REPORT — INDIVIDUAL FILE             ║\n';
-  txt += '╚══════════════════════════════════════════════════════════╝\n\n';
-  txt += `File       : ${r.fileName}\nDate       : ${new Date().toLocaleDateString('en-IN')}\nTime       : ${new Date().toLocaleTimeString('en-IN')}\n\n`;
-  txt += `── SUMMARY ─────────────────────────────────────────────────\n`;
-  txt += `Total Checks : ${s.totalChecks||0}\nPassed       : ${s.passed||0}\nFailed       : ${s.failed||0}\nPass Rate    : ${rate}%\nHigh Risk    : ${s.highRisk||0} | Medium : ${s.mediumRisk||0} | Low : ${s.lowRisk||0}\n\n`;
-  const app = r.extractedData?.applicant||{};
-  if (Object.values(app).some(v=>v)) {
-    txt += `── EXTRACTED DATA ───────────────────────────────────────────\n`;
-    Object.entries(app).forEach(([k,v])=>{ if(v) txt += `  ${formatKey(k).padEnd(20)}: ${v}\n`; });
-    txt += '\n';
-  }
-  txt += `── CHECKLIST ────────────────────────────────────────────────\n`;
-  (r.checkResults||[]).forEach(c => {
-    txt += `[${c.result.padEnd(13)}] ${c.id.padEnd(4)} ${c.description}\n`;
-    if (c.reason) txt += `  Reason : ${c.reason}\n`;
-    if (c.risk && c.risk!=='NA' && c.result!=='PASS') txt += `  Risk   : ${c.risk}\n`;
-    txt += '\n';
-  });
-  if (r.auditObservations?.length) {
-    txt += `── OBSERVATIONS ─────────────────────────────────────────────\n`;
-    r.auditObservations.forEach((o,i)=>{ txt += `${i+1}. ${o}\n`; });
-    txt += '\n';
-  }
-  if (r.businessPhoto?.businessType) {
-    txt += `── BUSINESS ANALYSIS ────────────────────────────────────────\n`;
-    txt += `Type      : ${r.businessPhoto.businessType}\nValuation : ₹${(r.businessPhoto.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.businessPhoto.valuationMax||0).toLocaleString('en-IN')}\n`;
-    if (r.businessPhoto.items?.length) txt += `Items     : ${r.businessPhoto.items.join(', ')}\n`;
-  }
-  txt += '\n════════════════════════════════════════════════════════════\nGenerated by KYC Audit Automation Tool\n';
-  dlText(txt, `KYC_Report_${doc.name.replace(/\.[^.]+$/,'')}.txt`);
+  const doc=S.docs.find(d=>d.id===id); if (!doc?.result) return;
+  const r=doc.result; const s=r.summary||{};
+  const rate=s.totalChecks>0?Math.round(((s.passed||0)/s.totalChecks)*100):0;
+  let txt='╔══════════════════════════════════════════════════════════╗\n║         KYC AUDIT REPORT — INDIVIDUAL FILE             ║\n╚══════════════════════════════════════════════════════════╝\n\n';
+  txt+=`Customer ID : ${r.custId||doc.custId}\nCustomer    : ${r.customerName||''}\nDate        : ${new Date().toLocaleDateString('en-IN')}\nTime        : ${new Date().toLocaleTimeString('en-IN')}\n\n`;
+  txt+=`── SUMMARY ─────────────────────────────────────────────────\nTotal Checks : ${s.totalChecks||0}\nPassed       : ${s.passed||0}\nFailed       : ${s.failed||0}\nPass Rate    : ${rate}%\nHigh Risk    : ${s.highRisk||0} | Medium : ${s.mediumRisk||0} | Low : ${s.lowRisk||0}\n\n`;
+  if (r.keyPoints?.length) { txt+=`── KEY POINTS ───────────────────────────────────────────────\n`; r.keyPoints.forEach((p,i)=>{ txt+=`${i+1}. ${p}\n`; }); txt+='\n'; }
+  const app=r.extractedData?.applicant||{};
+  if (Object.values(app).some(v=>v)) { txt+=`── EXTRACTED DATA ───────────────────────────────────────────\n`; Object.entries(app).forEach(([k,v])=>{ if(v) txt+=`  ${formatKey(k).padEnd(20)}: ${v}\n`; }); txt+='\n'; }
+  if (r.photoAnalysis?.businessType) { txt+=`── BUSINESS PHOTO ───────────────────────────────────────────\nType      : ${r.photoAnalysis.businessType}\nValuation : ₹${(r.photoAnalysis.valuationMin||0).toLocaleString('en-IN')} – ₹${(r.photoAnalysis.valuationMax||0).toLocaleString('en-IN')}\nFace Match: ${r.photoAnalysis.photoMatchResult||'N/A'}\n\n`; }
+  txt+=`── CHECKLIST ────────────────────────────────────────────────\n`;
+  (r.checkResults||[]).forEach(c=>{ txt+=`[${(c.result||'').padEnd(13)}] ${(c.id||'').padEnd(5)} ${c.description||''}\n`; if(c.reason) txt+=`  → ${c.reason}\n`; txt+='\n'; });
+  if (r.auditObservations?.length) { txt+=`── OBSERVATIONS ─────────────────────────────────────────────\n`; r.auditObservations.forEach((o,i)=>{ txt+=`${i+1}. ${o}\n`; }); }
+  txt+='\n════════════════════════════════════════════════════════════\nGenerated by KYC Audit Automation Tool v3\n';
+  dlText(txt,`KYC_${doc.custId}_Report.txt`);
 }
 
 function downloadMasterReport() {
-  const done = S.docs.filter(d=>d.status==='done'&&d.result);
-  if (!done.length) { alert('No results yet.'); return; }
-  let txt = '╔══════════════════════════════════════════════════════════╗\n';
-  txt += '║              KYC MASTER AUDIT REPORT                   ║\n';
-  txt += '╚══════════════════════════════════════════════════════════╝\n\n';
-  txt += `Generated : ${new Date().toLocaleString('en-IN')}\nTotal Files : ${done.length}\n\n`;
-  txt += `── FILE SUMMARY ─────────────────────────────────────────────\n`;
-  txt += 'File'.padEnd(35)+'Checks'.padEnd(8)+'Pass'.padEnd(8)+'Fail'.padEnd(8)+'High'.padEnd(8)+'Rate\n';
-  txt += '─'.repeat(72)+'\n';
-  done.forEach(d=>{
-    const s=d.result.summary||{};
-    const rate=s.totalChecks>0?Math.round(((s.passed||0)/s.totalChecks)*100)+'%':'—';
-    txt+=d.name.slice(0,34).padEnd(35)+String(s.totalChecks||0).padEnd(8)+String(s.passed||0).padEnd(8)+String(s.failed||0).padEnd(8)+String(s.highRisk||0).padEnd(8)+rate+'\n';
-  });
-  txt += '\n── OBSERVATIONS ─────────────────────────────────────────────\n';
-  done.forEach(d=>{
-    if (d.result.auditObservations?.length) {
-      txt += `\n[${d.name}]\n`;
-      d.result.auditObservations.forEach((o,i)=>{ txt+=`  ${i+1}. ${o}\n`; });
-    }
-  });
-  txt += '\n════════════════════════════════════════════════════════════\nGenerated by KYC Audit Automation Tool\n';
-  dlText(txt, 'KYC_Master_Report.txt');
+  const done=S.docs.filter(d=>d.status==='done'&&d.result); if (!done.length) { alert('No results yet.'); return; }
+  let txt='╔══════════════════════════════════════════════════════════╗\n║              KYC MASTER AUDIT REPORT                   ║\n╚══════════════════════════════════════════════════════════╝\n\n';
+  txt+=`Generated   : ${new Date().toLocaleString('en-IN')}\nTotal Files : ${done.length}\nRules Used  : ${S.checklist.length}\n\n`;
+  txt+=`── FILE SUMMARY ─────────────────────────────────────────────\n${'Customer ID'.padEnd(15)}${'Name'.padEnd(25)}${'Checks'.padEnd(8)}${'Pass'.padEnd(8)}${'Fail'.padEnd(8)}${'High'.padEnd(8)}Rate\n${'─'.repeat(74)}\n`;
+  done.forEach(d=>{ const s=d.result.summary||{}; const rate=s.totalChecks>0?Math.round(((s.passed||0)/s.totalChecks)*100)+'%':'—'; txt+=`${d.custId.padEnd(15)}${(d.result.customerName||'').slice(0,24).padEnd(25)}${String(s.totalChecks||0).padEnd(8)}${String(s.passed||0).padEnd(8)}${String(s.failed||0).padEnd(8)}${String(s.highRisk||0).padEnd(8)}${rate}\n`; });
+  txt+='\n── ALL OBSERVATIONS ─────────────────────────────────────────\n';
+  done.forEach(d=>{ if(d.result.auditObservations?.length) { txt+=`\n[${d.custId}] ${d.result.customerName||''}\n`; d.result.auditObservations.forEach((o,i)=>{ txt+=`  ${i+1}. ${o}\n`; }); } });
+  txt+='\n════════════════════════════════════════════════════════════\nGenerated by KYC Audit Automation Tool v3\n';
+  dlText(txt,'KYC_Master_Report.txt');
 }
 
 function downloadMasterCSV() {
-  const done = S.docs.filter(d=>d.status==='done'&&d.result);
-  if (!done.length) { alert('No results yet.'); return; }
-  const rows = [['File','Total Checks','Passed','Failed','Cannot Verify','High Risk','Medium Risk','Low Risk','Pass Rate %','Applicant Name','Observations']];
-  done.forEach(d=>{
-    const s=d.result.summary||{};
-    const rate=s.totalChecks>0?Math.round(((s.passed||0)/s.totalChecks)*100):0;
-    rows.push([d.name,s.totalChecks||0,s.passed||0,s.failed||0,s.cannotVerify||0,s.highRisk||0,s.mediumRisk||0,s.lowRisk||0,rate,d.result.extractedData?.applicant?.name||'',(d.result.auditObservations||[]).join(' | ')]);
-  });
-  dlText(rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n'), 'KYC_Master_Report.csv');
+  const done=S.docs.filter(d=>d.status==='done'&&d.result); if (!done.length) { alert('No results yet.'); return; }
+  const rows=[['Customer ID','Customer Name','Total Checks','Passed','Failed','Cannot Verify','High Risk','Med Risk','Low Risk','Pass Rate %','Business Type','Valuation','Key Points','Observations']];
+  done.forEach(d=>{ const s=d.result.summary||{}; const rate=s.totalChecks>0?Math.round(((s.passed||0)/s.totalChecks)*100):0; rows.push([d.custId,d.result.customerName||'',s.totalChecks||0,s.passed||0,s.failed||0,s.cannotVerify||0,s.highRisk||0,s.mediumRisk||0,s.lowRisk||0,rate,d.result.photoAnalysis?.businessType||'',`${(d.result.photoAnalysis?.valuationMin||0).toLocaleString('en-IN')}-${(d.result.photoAnalysis?.valuationMax||0).toLocaleString('en-IN')}`,(d.result.keyPoints||[]).slice(0,3).join(' | '),(d.result.auditObservations||[]).join(' | ')]); });
+  dlText(rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n'),'KYC_Master_Report.csv');
 }
 
-function dlText(content, filename) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([content],{type:'text/plain;charset=utf-8'}));
-  a.download = filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+function dlText(content,filename) {
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type:'text/plain;charset=utf-8'})); a.download=filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
 /* ── WIPE ── */
 function wipeAll() {
-  if (!confirm('Clear all files and results from this session?')) return;
-  S.docs = [];
-  renderFileList();
-  checkRunEligible();
-  document.getElementById('wipeBtn').style.display = 'none';
-  document.getElementById('navDash').disabled = true;
-  document.getElementById('navReports').disabled = true;
+  if (!confirm('Clear all files and results?')) return;
+  S.docs=[]; renderCustomerList(); checkRunEligible();
+  document.getElementById('wipeBtn').style.display='none';
+  document.getElementById('navDash').disabled=true;
+  document.getElementById('navReports').disabled=true;
+  document.getElementById('zipMeta').textContent='No ZIP loaded';
   navTo('input');
 }
 
+/* ── HELPERS ── */
+function uid() { return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function formatKey(k) { return k.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase()); }
+
 /* ── INIT ── */
 navTo('input');
+renderRules();

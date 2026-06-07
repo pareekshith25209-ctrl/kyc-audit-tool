@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -24,109 +25,97 @@
         <div class="brand-sub">Internal Audit Tool</div>
       </div>
     </div>
-
     <nav class="seg" id="mainNav">
       <button class="on" data-page="input" onclick="navTo('input')">Upload &amp; Configure</button>
+      <button data-page="checklist" onclick="navTo('checklist')">Checklist Rules</button>
       <button data-page="dashboard" onclick="navTo('dashboard')" id="navDash" disabled>Dashboard</button>
       <button data-page="reports" onclick="navTo('reports')" id="navReports" disabled>Reports</button>
     </nav>
-
     <div class="topbar-right">
-      <div class="conf-badge" id="apiBadge">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
-        No API key
-      </div>
-      <button class="ghost-btn" onclick="openSettings()">Settings</button>
+      <div class="conf-badge" id="apiBadge"><span class="status-dot red"></span>No API key</div>
+      <button class="ghost-btn" onclick="openSettings()">⚙ Settings</button>
       <button class="ghost-btn" id="wipeBtn" onclick="wipeAll()" style="display:none">Clear all</button>
     </div>
   </header>
 
-  <!-- INPUT PAGE -->
+  <!-- PAGE: UPLOAD -->
   <main class="page" id="page-input">
     <div class="page-head">
       <div>
-        <h1>KYC Verification</h1>
-        <p class="lede">Upload KYC documents for one or multiple applicant files. The AI reads every document — including scanned and vernacular text — extracts all fields, runs the full checklist, and produces audit reports.</p>
+        <h1>Upload Customer Folders</h1>
+        <p class="lede">Upload a ZIP file containing customer folders. Each folder should contain all KYC documents for one customer — Aadhaar, PAN, business photos, agreements, GST certificates, and bank statements.</p>
       </div>
     </div>
 
-    <div class="io-grid" id="ioGrid">
+    <div class="io-grid">
 
-      <!-- LEFT: File upload -->
-      <div class="card io-card">
+      <!-- ZIP UPLOAD -->
+      <div class="card io-card" style="grid-column:1/-1">
         <div class="io-card-head">
-          <div>
-            <div class="io-card-eyebrow">Step 1</div>
-            <h2>Upload Documents</h2>
-          </div>
-          <span class="io-meta" id="fileCount">0 files</span>
+          <div><div class="io-card-eyebrow">Step 1 — Primary method</div><h2>Upload Customer ZIP Folder</h2></div>
+          <span class="io-meta" id="zipMeta">No ZIP loaded</span>
         </div>
-
-        <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()"
-          ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <div class="dz-title">Drop files here or click to browse</div>
-          <div class="dz-sub">Aadhaar, PAN, Co-applicant docs, Business photos, Agreements, GST — JPG, PNG, PDF</div>
-          <input type="file" id="fileInput" multiple accept="image/*,.pdf" onchange="addFiles(this.files)" style="display:none" />
+        <div class="dropzone" id="zipDropzone" onclick="document.getElementById('zipInput').click()"
+          ondragover="dzOver(event,'zipDropzone')" ondragleave="dzLeave('zipDropzone')" ondrop="dzDropZip(event)">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <div class="dz-title">Drop a ZIP file here or click to browse</div>
+          <div class="dz-sub">ZIP must contain one sub-folder per customer. Each sub-folder name = Customer ID. Files inside = Aadhaar, PAN, photos, agreements etc.</div>
+          <div class="dz-sub" style="color:#1E4FE0;font-weight:500">Example: CustomerZIP.zip → LOAN001/ → aadhaar.jpg, pan.jpg, photo.jpg</div>
+          <input type="file" id="zipInput" accept=".zip" onchange="loadZip(this.files[0])" style="display:none" />
         </div>
-
-        <div class="file-list" id="fileList" style="display:none"></div>
-
+        <div id="zipFileList" style="display:none"></div>
         <div class="hint-row">
           <span class="privacy-note">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z"/></svg>
-            Files are never stored. Processed in browser only.
+            Files never leave your browser. All processing is local + Anthropic API only.
           </span>
-          <button class="link-btn" onclick="loadDemo()">Load 5 demo files →</button>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="number" id="demoCount" value="100" min="1" max="100" style="width:64px" class="text-input" />
+            <button class="link-btn" onclick="loadDemo()">Load demo files →</button>
+          </div>
         </div>
       </div>
 
-      <!-- RIGHT: LOS/LMS + config -->
-      <div style="display:flex;flex-direction:column;gap:16px;">
-
-        <div class="card io-card">
-          <div class="io-card-head">
-            <div>
-              <div class="io-card-eyebrow">Step 2 — Optional</div>
-              <h2>LOS / LMS Data</h2>
-            </div>
-          </div>
-          <div class="losdata-grid">
-            <div class="fg"><label>Applicant Name (LOS)</label><input class="text-input" id="los_name" placeholder="Full name as in LOS" /></div>
-            <div class="fg"><label>Applicant Name (LMS)</label><input class="text-input" id="lms_name" placeholder="Full name as in LMS" /></div>
-            <div class="fg"><label>Date of Birth (LOS)</label><input class="text-input" id="los_dob" placeholder="DD/MM/YYYY" /></div>
-            <div class="fg"><label>Date of Birth (LMS)</label><input class="text-input" id="lms_dob" placeholder="DD/MM/YYYY" /></div>
-            <div class="fg"><label>PAN (LOS)</label><input class="text-input" id="los_pan" placeholder="ABCDE1234F" /></div>
-            <div class="fg"><label>PAN (LMS)</label><input class="text-input" id="lms_pan" placeholder="ABCDE1234F" /></div>
-            <div class="fg"><label>Gender (LOS)</label>
-              <select class="text-input" id="los_gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select>
-            </div>
-            <div class="fg"><label>Gender (LMS)</label>
-              <select class="text-input" id="lms_gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select>
-            </div>
-            <div class="fg"><label>Address (LOS)</label><input class="text-input" id="los_address" placeholder="Correspondence address" /></div>
-            <div class="fg"><label>Address (LMS)</label><input class="text-input" id="lms_address" placeholder="Current address" /></div>
-            <div class="fg"><label>PIN Code (LOS)</label><input class="text-input" id="los_pin" placeholder="6-digit PIN" maxlength="6" /></div>
-            <div class="fg"><label>Risk Category (LMS)</label>
-              <select class="text-input" id="lms_risk"><option value="">Select</option><option>Low</option><option>Medium</option><option>High</option></select>
-            </div>
-          </div>
+      <!-- LOS/LMS PANEL -->
+      <div class="card io-card">
+        <div class="io-card-head">
+          <div><div class="io-card-eyebrow">Step 2 — LMS / LOS Integration</div><h2>Customer Database</h2></div>
+          <span class="api-connect-badge" id="lmsStatus">Not connected</span>
         </div>
+        <div class="info-banner blue">
+          <strong>Auto-fetch mode:</strong> When you connect your LMS/LOS API in Settings, customer data will be pulled automatically using the folder name as the Customer ID. For now, data can be uploaded as a CSV or entered manually per file.
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="ghost-btn" onclick="document.getElementById('csvInput').click()">📂 Upload LMS/LOS CSV</button>
+          <input type="file" id="csvInput" accept=".csv" onchange="loadCSV(this.files[0])" style="display:none" />
+          <button class="ghost-btn" onclick="openSettings()">🔗 Connect API</button>
+        </div>
+        <div id="csvStatus" style="font-size:12px;color:var(--muted)">No CSV loaded. Manual entry will be used.</div>
+        <div class="losdata-grid" id="losManualFields">
+          <div class="fg"><label>Applicant Name (LOS)</label><input class="text-input" id="los_name" placeholder="Auto-filled from LOS" /></div>
+          <div class="fg"><label>Applicant Name (LMS)</label><input class="text-input" id="lms_name" placeholder="Auto-filled from LMS" /></div>
+          <div class="fg"><label>DOB (LOS)</label><input class="text-input" id="los_dob" placeholder="DD/MM/YYYY" /></div>
+          <div class="fg"><label>DOB (LMS)</label><input class="text-input" id="lms_dob" placeholder="DD/MM/YYYY" /></div>
+          <div class="fg"><label>PAN (LOS)</label><input class="text-input" id="los_pan" placeholder="ABCDE1234F" /></div>
+          <div class="fg"><label>PAN (LMS)</label><input class="text-input" id="lms_pan" placeholder="ABCDE1234F" /></div>
+          <div class="fg"><label>Gender (LOS)</label><select class="text-input" id="los_gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+          <div class="fg"><label>Risk Category (LMS)</label><select class="text-input" id="lms_risk"><option value="">Select</option><option>Low</option><option>Medium</option><option>High</option></select></div>
+          <div class="fg" style="grid-column:1/-1"><label>Address (LOS)</label><input class="text-input" id="los_address" placeholder="Correspondence address" /></div>
+          <div class="fg"><label>PIN Code</label><input class="text-input" id="los_pin" placeholder="6-digit PIN" maxlength="6" /></div>
+          <div class="fg"><label>Branch Name</label><input class="text-input" id="lms_branch" placeholder="Branch" /></div>
+        </div>
+      </div>
 
+      <!-- RUN PANEL -->
+      <div style="display:flex;flex-direction:column;gap:16px">
         <div class="card io-card">
           <div class="io-card-head">
-            <div>
-              <div class="io-card-eyebrow">Step 3</div>
-              <h2>Run Audit</h2>
-            </div>
-            <div class="concurrency-wrap">
-              <label>Concurrent</label>
-              <input type="number" class="text-input" id="concurrency" value="2" min="1" max="5" style="width:56px;text-align:center;" />
-            </div>
+            <div><div class="io-card-eyebrow">Step 3</div><h2>Run Audit</h2></div>
+            <div class="concurrency-wrap"><label>Concurrent</label><input type="number" class="text-input" id="concurrency" value="2" min="1" max="5" style="width:56px;text-align:center" /></div>
           </div>
           <div id="runError" class="error-msg" style="display:none"></div>
           <div class="run-bar">
-            <div class="run-bar-left small muted" id="runMeta">Upload at least 1 document to begin.</div>
+            <div class="run-bar-left small muted" id="runMeta">Upload a ZIP or load demo files to begin.</div>
             <button class="primary-btn" id="runBtn" onclick="runAll()" disabled>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               Run KYC Audit
@@ -134,65 +123,113 @@
           </div>
         </div>
 
+        <div class="card io-card">
+          <div class="io-card-head"><div><div class="io-card-eyebrow">Loaded Files</div><h2 id="customerCount">0 customers</h2></div></div>
+          <div id="customerList" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+        </div>
       </div>
+
     </div>
   </main>
 
-  <!-- DASHBOARD PAGE -->
-  <main class="page" id="page-dashboard" style="display:none">
+  <!-- PAGE: CHECKLIST -->
+  <main class="page" id="page-checklist" style="display:none">
     <div class="page-head">
-      <div>
-        <h1>Audit Dashboard</h1>
-        <p class="lede" id="dashLede">Running audit...</p>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button class="ghost-btn" onclick="downloadMasterCSV()">Export CSV</button>
-        <button class="ghost-btn" onclick="downloadMasterReport()">Download Master Report</button>
+      <div><h1>Checklist Rules</h1><p class="lede">Define the rules and checkpoints the AI will use when auditing every file. Add rules one by one using the form, or paste multiple rules as plain text.</p></div>
+      <div style="display:flex;gap:8px">
+        <button class="ghost-btn" onclick="resetChecklist()">Reset to defaults</button>
+        <button class="ghost-btn" onclick="exportChecklist()">Export rules</button>
+        <button class="primary-btn" onclick="importChecklistClick()">Import rules</button>
+        <input type="file" id="checklistImport" accept=".json,.txt" onchange="importChecklist(this.files[0])" style="display:none" />
       </div>
     </div>
 
-    <!-- Hero stats -->
+    <div class="checklist-layout">
+
+      <!-- ADD RULE FORM -->
+      <div class="card io-card">
+        <div class="io-card-eyebrow">Add a single rule</div>
+        <h2 style="font-size:16px;font-weight:600;margin:4px 0 14px">Rule Builder</h2>
+        <div class="fg" style="margin-bottom:10px"><label>Rule ID (e.g. A1, C3, CUSTOM1)</label><input class="text-input" id="ruleId" placeholder="e.g. A18" /></div>
+        <div class="fg" style="margin-bottom:10px"><label>Rule Description</label><input class="text-input" id="ruleDesc" placeholder="e.g. Is the address PIN code valid?" /></div>
+        <div class="fg" style="margin-bottom:10px"><label>Category</label>
+          <select class="text-input" id="ruleCat">
+            <option value="Applicant KYC">Applicant KYC</option>
+            <option value="Co-Applicant KYC">Co-Applicant KYC</option>
+            <option value="LOS/LMS Cross-check">LOS/LMS Cross-check</option>
+            <option value="Business Verification">Business Verification</option>
+            <option value="Photo Verification">Photo Verification</option>
+            <option value="Custom">Custom</option>
+          </select>
+        </div>
+        <div class="fg" style="margin-bottom:14px"><label>Risk Level if Failed</label>
+          <select class="text-input" id="ruleRisk">
+            <option value="HIGH">HIGH — Identity/compliance critical</option>
+            <option value="MEDIUM" selected>MEDIUM — Data inconsistency</option>
+            <option value="LOW">LOW — Minor/optional field</option>
+          </select>
+        </div>
+        <button class="primary-btn" style="width:100%" onclick="addRule()">+ Add Rule</button>
+      </div>
+
+      <!-- BULK TEXT ADD -->
+      <div class="card io-card">
+        <div class="io-card-eyebrow">Add multiple rules at once</div>
+        <h2 style="font-size:16px;font-weight:600;margin:4px 0 6px">Paste Rules as Text</h2>
+        <p class="lede" style="margin-bottom:10px">One rule per line. Format: <code>ID | Description | Category | Risk</code><br>Example: <code>A18 | Is nominee details filled? | Applicant KYC | LOW</code></p>
+        <textarea class="text-input" id="bulkRulesText" rows="8" placeholder="A18 | Is nominee details filled? | Applicant KYC | LOW&#10;C11 | Is co-applicant income verified? | Co-Applicant KYC | MEDIUM&#10;CUSTOM1 | Is property document attached? | Custom | HIGH" style="resize:vertical;font-family:monospace;font-size:12px"></textarea>
+        <button class="primary-btn" style="width:100%;margin-top:10px" onclick="addBulkRules()">+ Add All Rules</button>
+      </div>
+
+      <!-- CURRENT RULES LIST -->
+      <div class="card" style="grid-column:1/-1;padding:0;overflow:hidden">
+        <div class="table-head">
+          <div><h2>Active Rules <span style="font-size:13px;font-weight:400;color:var(--muted)" id="ruleCount"></span></h2></div>
+          <div style="display:flex;gap:8px">
+            <div class="filter-seg">
+              <button class="on" data-rcat="all" onclick="setRuleCat('all',this)">All</button>
+              <button data-rcat="Applicant KYC" onclick="setRuleCat('Applicant KYC',this)">Applicant</button>
+              <button data-rcat="Co-Applicant KYC" onclick="setRuleCat('Co-Applicant KYC',this)">Co-Applicant</button>
+              <button data-rcat="LOS/LMS Cross-check" onclick="setRuleCat('LOS/LMS Cross-check',this)">LOS/LMS</button>
+              <button data-rcat="Custom" onclick="setRuleCat('Custom',this)">Custom</button>
+            </div>
+          </div>
+        </div>
+        <div id="rulesList"></div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- PAGE: DASHBOARD -->
+  <main class="page" id="page-dashboard" style="display:none">
+    <div class="page-head">
+      <div><h1>Audit Dashboard</h1><p class="lede" id="dashLede">Run an audit to see results here.</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost-btn" onclick="downloadMasterCSV()">Export CSV</button>
+        <button class="ghost-btn" onclick="downloadMasterReport()">Master Report</button>
+      </div>
+    </div>
     <div class="card dash-hero" id="dashHero">
       <div class="hero-headline">
         <div class="eyebrow">Files processed</div>
-        <div class="big-number">
-          <span class="passed" id="heroPass">0</span>
-          <span class="of">of <span id="heroTotal">0</span></span>
-        </div>
+        <div class="big-number"><span class="passed" id="heroPass">0</span><span class="of">of <span id="heroTotal">0</span></span></div>
         <div class="big-sub">files passed all checks <span class="muted" id="heroSub"></span></div>
-        <div class="progress-row">
-          <div class="progress"><div class="progress-fill" id="heroProg" style="width:0%"></div></div>
-          <span class="progress-label" id="heroProgLabel">0%</span>
-        </div>
+        <div class="progress-row"><div class="progress"><div class="progress-fill" id="heroProg" style="width:0%"></div></div><span class="progress-label" id="heroProgLabel">0%</span></div>
       </div>
       <div class="hero-bars" id="heroBars"></div>
     </div>
-
-    <!-- Counter cards -->
     <div class="passfail" id="passfailCards"></div>
-
-    <!-- Chart row -->
-    <div class="chart-row" style="margin-bottom:16px;">
-      <div class="card chart-box">
-        <div class="chart-box-title">Pass / Fail per file</div>
-        <div style="position:relative;height:220px"><canvas id="passFailChart" role="img" aria-label="Pass vs fail per file"></canvas></div>
-      </div>
-      <div class="card chart-box">
-        <div class="chart-box-title">Risk distribution</div>
-        <div style="position:relative;height:220px"><canvas id="riskChart" role="img" aria-label="Risk distribution"></canvas></div>
-      </div>
+    <div class="chart-row" style="margin-bottom:16px">
+      <div class="card chart-box"><div class="chart-box-title">Pass / Fail per file</div><div style="position:relative;height:220px"><canvas id="passFailChart" role="img" aria-label="Pass vs fail"></canvas></div></div>
+      <div class="card chart-box"><div class="chart-box-title">Risk distribution</div><div style="position:relative;height:220px"><canvas id="riskChart" role="img" aria-label="Risk distribution"></canvas></div></div>
     </div>
-
-    <!-- Bulk table -->
     <div class="card table-card">
       <div class="table-head">
-        <div>
-          <h2>All Files</h2>
-          <div class="muted small" id="tableSubtitle"></div>
-        </div>
+        <div><h2>All Files</h2><div class="muted small" id="tableSubtitle"></div></div>
         <div class="table-tools">
-          <input class="text-input search-input" id="searchInput" placeholder="Search file name..." oninput="filterTable()" />
-          <div class="filter-seg compact" id="filterSeg">
+          <input class="text-input search-input" id="searchInput" placeholder="Search customer..." oninput="filterTable()" />
+          <div class="filter-seg" id="filterSeg">
             <button class="on" data-filter="all" onclick="setFilter('all',this)">All <span class="seg-count" id="fc-all">0</span></button>
             <button data-filter="pass" onclick="setFilter('pass',this)">Pass <span class="seg-count" id="fc-pass">0</span></button>
             <button data-filter="fail" onclick="setFilter('fail',this)">Fail <span class="seg-count" id="fc-fail">0</span></button>
@@ -204,15 +241,12 @@
     </div>
   </main>
 
-  <!-- REPORTS PAGE -->
+  <!-- PAGE: REPORTS -->
   <main class="page" id="page-reports" style="display:none">
     <div class="page-head">
-      <div>
-        <h1>Reports &amp; Observations</h1>
-        <p class="lede">Detailed per-file audit reports with extracted fields, checklist results, and formal observations.</p>
-      </div>
-      <div style="display:flex;gap:8px;">
-        <button class="ghost-btn" onclick="downloadMasterReport()">Download Master Report</button>
+      <div><h1>Reports &amp; Observations</h1><p class="lede">Detailed per-file reports with extracted fields, checklist results, photo analysis, and formal audit observations.</p></div>
+      <div style="display:flex;gap:8px">
+        <button class="ghost-btn" onclick="downloadMasterReport()">Master Report</button>
         <button class="ghost-btn" onclick="downloadMasterCSV()">Export CSV</button>
       </div>
     </div>
@@ -221,32 +255,37 @@
 
   <!-- SETTINGS MODAL -->
   <div class="dive-overlay" id="settingsOverlay" style="display:none" onclick="if(event.target===this)closeSettings()">
-    <div class="dive" style="width:min(520px,100%);max-height:80vh;">
+    <div class="dive" style="width:min(560px,100%);max-height:85vh">
       <div class="dive-head">
-        <div>
-          <div class="eyebrow">Configuration</div>
-          <h3>Settings</h3>
-        </div>
+        <div><div class="eyebrow">Configuration</div><h3>Settings</h3></div>
         <button class="ghost-btn" onclick="closeSettings()">✕</button>
       </div>
-      <div style="padding:24px;overflow-y:auto;display:flex;flex-direction:column;gap:20px;">
+      <div style="padding:24px;overflow-y:auto;display:flex;flex-direction:column;gap:20px">
         <div>
           <div class="dive-label">Anthropic API Key</div>
-          <p class="dive-text" style="margin-bottom:10px;">Required to run AI analysis. Get a free key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com →</a></p>
+          <p class="dive-text" style="margin-bottom:10px">Required to run AI analysis. Get a free key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com →</a></p>
           <input type="password" class="text-input" id="apiKeyInput" placeholder="sk-ant-api..." style="width:100%" />
           <button class="primary-btn" style="margin-top:10px;width:100%" onclick="saveApiKey()">Save API Key</button>
-          <div id="apiSaveMsg" style="display:none;color:#2E9461;font-size:13px;margin-top:8px;">✓ API key saved.</div>
+          <div id="apiSaveMsg" style="display:none;color:#2E9461;font-size:13px;margin-top:8px">✓ API key saved for this session.</div>
+        </div>
+        <div>
+          <div class="dive-label">LMS / LOS API Connection (Future)</div>
+          <p class="dive-text" style="margin-bottom:10px">Enter your LMS/LOS API endpoint. The tool will auto-fetch customer data using the folder name as the Customer ID.</p>
+          <input class="text-input" id="lmsApiUrl" placeholder="https://your-lms-api.com/customer/{id}" style="width:100%" />
+          <input class="text-input" id="lmsApiKey" placeholder="API Key or Bearer Token" style="width:100%;margin-top:8px" />
+          <button class="ghost-btn" style="margin-top:10px;width:100%" onclick="saveLmsApi()">Save LMS/LOS API (Coming soon)</button>
         </div>
         <div>
           <div class="dive-label">Risk Thresholds</div>
           <div class="losdata-grid">
-            <div class="fg"><label>High risk — fail rate above (%)</label><input type="number" class="text-input" id="threshHigh" value="50" min="1" max="99" /></div>
-            <div class="fg"><label>Medium risk — fail rate above (%)</label><input type="number" class="text-input" id="threshMed" value="25" min="1" max="99" /></div>
+            <div class="fg"><label>High risk — fail % above</label><input type="number" class="text-input" id="threshHigh" value="50" min="1" max="99" /></div>
+            <div class="fg"><label>Medium risk — fail % above</label><input type="number" class="text-input" id="threshMed" value="25" min="1" max="99" /></div>
           </div>
+          <button class="ghost-btn" style="margin-top:10px" onclick="saveThresholds()">Save thresholds</button>
         </div>
         <div>
           <div class="dive-label">About</div>
-          <p class="dive-text">KYC Audit Automation Tool — built for internal audit teams. All document processing happens directly in your browser via the Anthropic API. No data is stored anywhere.</p>
+          <p class="dive-text">KYC Audit Automation Tool v3.0 — Built for internal audit teams. Reads Aadhaar, PAN, GST, bank statements, agreements in any Indian language. Supports photo matching and business valuation. All processing via Anthropic API. No data stored.</p>
         </div>
       </div>
     </div>

@@ -46,7 +46,8 @@ function getDefaultChecklist() {
 /* ── NAV ── */
 function navTo(page) {
   ['input','checklist','dashboard','reports'].forEach(p => {
-    document.getElementById('page-' + p).style.display = p === page ? 'block' : 'none';
+    const el = document.getElementById('page-' + p);
+    if (el) el.style.display = p === page ? 'block' : 'none';
   });
   document.querySelectorAll('.seg button[data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
   if (page === 'checklist') renderRules();
@@ -401,20 +402,164 @@ async function processNext(queue) {
     const doc = S.docs[idx]; if (!doc) continue;
     doc.status = 'running'; updateCustStatus(doc); renderBulkTable();
     try {
-      const messages = await buildMessages(doc);
-      const resp = await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4000,messages}),
-      });
-      if (!resp.ok) { const e=await resp.json(); throw new Error(e.error?.message||'API error '+resp.status); }
-      const data = await resp.json();
-      const raw = (data.content||[]).map(b=>b.text||'').join('').replace(/```json|```/g,'').trim();
-      doc.result = JSON.parse(raw);
-      doc.status = 'done';
+      if (doc.isDemo) {
+        // Demo files: generate results locally, no API call needed
+        await new Promise(r => setTimeout(r, 300 + Math.random()*400));
+        doc.result = generateDemoResult(doc);
+        doc.status = 'done';
+      } else {
+        const messages = await buildMessages(doc);
+        const resp = await fetch('https://api.anthropic.com/v1/messages',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+          body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4000,messages}),
+        });
+        if (!resp.ok) { const e=await resp.json(); throw new Error(e.error?.message||'API error '+resp.status); }
+        const data = await resp.json();
+        const raw = (data.content||[]).map(b=>b.text||'').join('').replace(/```json|```/g,'').trim();
+        doc.result = JSON.parse(raw);
+        doc.status = 'done';
+      }
     } catch(e) { doc.error=e.message; doc.status='error'; }
     updateCustStatus(doc); renderBulkTable(); updateDashHero();
   }
+}
+
+function generateDemoResult(doc) {
+  const profile = doc.profile || 'minor';
+  const rand = a => a[Math.floor(Math.random()*a.length)];
+  const ri = (lo,hi) => Math.floor(lo+Math.random()*(hi-lo+1));
+  const pan = 'ABCDE' + ri(1000,9999) + 'F';
+  const aadhaar = String(ri(1000,9999));
+  const dob = `${String(ri(1,28)).padStart(2,'0')}/${String(ri(1,12)).padStart(2,'0')}/${ri(1965,2000)}`;
+  const age = 2024 - parseInt(dob.split('/')[2]);
+  const pin = (profile==='issues' && Math.random()<0.3) ? '9' + ri(10000,99999) : ri(400001,799999).toString();
+  const langs = ['Hindi','Tamil','Telugu','Kannada','Marathi'];
+  const lang = doc.lang || rand(langs);
+  const bizItems = {
+    'Kirana Store':['Rice bags (50kg)','Wheat flour','Cooking oil (5L)','Pulses','Sugar','Salt','Biscuits','Chips','Soft drinks','Soap','Detergent'],
+    'Medical Store':['Medicines (OTC)','Prescription drugs','Surgical supplies','BP monitor','Thermometers','Syringes','Vitamins'],
+    'Mobile Shop':['Smartphones (10 units)','Feature phones','Chargers','Earphones','Screen guards','Mobile covers','Power banks'],
+    'Textile Shop':['Cotton sarees (50)','Silk sarees (20)','Dress materials','Blouse pieces','Readymade garments','Embroidery items'],
+    'Hardware Store':['Cement bags (100)','Iron rods','Paint cans','Plumbing items','Electrical wire','Tools','Nails and screws'],
+    'Bakery':['Bread loaves','Cakes','Biscuits','Pastries','Rusk','Cookies','Ovens (2 units)','Refrigerator'],
+    'Restaurant':['Kitchen equipment','Tables (10)','Chairs (40)','Gas cylinders','Utensils','Refrigerator','Menu items'],
+    'default':['General merchandise','Inventory items','Display shelves','Cash counter','Storage racks'],
+  };
+  const items = bizItems[doc.shop] || bizItems['default'];
+  const valMin = {
+    'Kirana Store':150000,'Medical Store':300000,'Mobile Shop':400000,'Textile Shop':250000,
+    'Hardware Store':350000,'Bakery':200000,'Restaurant':500000
+  }[doc.shop] || 100000;
+  const valMax = valMin * (1.5 + Math.random());
+
+  // Build checklist results based on profile
+  const checks = S.checklist.map(rule => {
+    let result, reason;
+    if (profile === 'clean') {
+      result = 'PASS';
+      reason = 'Verified and consistent across all documents.';
+    } else if (profile === 'minor') {
+      // Fail 2-3 random medium checks
+      const failIds = ['A8','A12','C9','A15','B2'];
+      if (failIds.includes(rule.id) && Math.random() < 0.5) {
+        result = 'FAIL';
+        reason = rule.id==='A8' ? 'Permanent and correspondence address differ slightly' :
+                 rule.id==='A12' ? 'Co-applicant PIN does not match applicant PIN' :
+                 rule.id==='C9' ? 'Gender entry in LOS differs from Aadhaar' :
+                 rule.id==='A15' ? 'DOB format inconsistency between LOS and LMS' :
+                 'Address in GST certificate has minor discrepancy with LOS';
+      } else if (['C1','C2','C3','C4','C5','C6','C7','C8'].includes(rule.id) && Math.random() < 0.4) {
+        result = 'CANNOT_VERIFY';
+        reason = 'Co-applicant documents not available in this folder.';
+      } else {
+        result = 'PASS';
+        reason = 'Verified successfully.';
+      }
+    } else {
+      // issues profile — fail 4-6 checks including some HIGH
+      const failIds = ['A9','A6','A11','C1','C2','A13','A14'];
+      if (failIds.includes(rule.id) && Math.random() < 0.65) {
+        result = 'FAIL';
+        reason = rule.id==='A9' ? 'Name spelling differs between Aadhaar and PAN — possible mismatch' :
+                 rule.id==='A6' ? 'Date of Birth on PAN does not match Aadhaar' :
+                 rule.id==='A11' ? 'Correspondence address PIN code starts with 9 — flagged' :
+                 rule.id==='C1' ? 'Co-applicant Aadhaar not found in submitted documents' :
+                 rule.id==='C2' ? 'Co-applicant PAN card not submitted' :
+                 rule.id==='A13' ? 'Applicant name in documents does not match LOS records' :
+                 'Applicant name in documents does not match LMS records';
+      } else if (['C1','C2','C3','C4','C5','C6','C7','C8'].includes(rule.id)) {
+        result = 'CANNOT_VERIFY';
+        reason = 'Co-applicant documents not available.';
+      } else {
+        result = Math.random() < 0.75 ? 'PASS' : 'CANNOT_VERIFY';
+        reason = result === 'PASS' ? 'Verified successfully.' : 'Could not verify — document quality insufficient.';
+      }
+    }
+    return { id:rule.id, description:rule.desc, result, reason, risk: result==='FAIL'?rule.risk:'NA' };
+  });
+
+  const passed = checks.filter(c=>c.result==='PASS').length;
+  const failed = checks.filter(c=>c.result==='FAIL').length;
+  const cantVerify = checks.filter(c=>c.result==='CANNOT_VERIFY').length;
+  const highRisk = checks.filter(c=>c.result==='FAIL'&&c.risk==='HIGH').length;
+  const medRisk = checks.filter(c=>c.result==='FAIL'&&c.risk==='MEDIUM').length;
+  const lowRisk = checks.filter(c=>c.result==='FAIL'&&c.risk==='LOW').length;
+  const passRate = Math.round((passed/checks.length)*100);
+
+  const observations = failed > checks.length * 0.5 ? [
+    `Critical: Identity documents show name inconsistency between Aadhaar and PAN for ${doc.name}. Immediate re-verification required before loan disbursement.`,
+    `High risk: Date of Birth mismatch detected across identity documents. Risk of document fraud cannot be ruled out.`,
+    `Compliance gap: Co-applicant KYC documents are incomplete. Full set of documents must be collected as per RBI KYC norms.`,
+  ] : failed > 2 ? [
+    `Observation: Minor data inconsistencies found in ${doc.name}'s KYC file. Address and DOB fields require re-verification with originals.`,
+  ] : [];
+
+  return {
+    custId: doc.custId,
+    customerName: doc.name,
+    extractedData: {
+      applicant: {
+        name: doc.name,
+        fatherName: 'S/O ' + rand(['Ramesh','Suresh','Mahesh','Dinesh','Rajesh']) + ' Kumar',
+        dob,
+        pan,
+        pan4thChar: 'P',
+        aadhaarLast4: aadhaar,
+        gender: rand(['Male','Female']),
+        address: `${ri(1,999)}, ${rand(['MG Road','Gandhi Nagar','Nehru Street','Anna Salai','Ring Road'])}, ${doc.city} - ${pin}`,
+        pinCode: pin,
+        state: rand(['Maharashtra','Tamil Nadu','Karnataka','Telangana','Uttar Pradesh','Gujarat','Rajasthan']),
+        age: String(age),
+        language: lang,
+      },
+      coApplicant: { name:'', dob:'', pan:'', gender:'', address:'', pinCode:'' },
+      business: { name: doc.name + "'s " + doc.shop, gstNo:'27' + ri(10,99) + 'ABCDE' + ri(1000,9999) + 'F1Z5', address: doc.city, type: doc.shop },
+      loan: { borrowerName: doc.name, amount:'₹' + ri(1,15) + ',00,000', emi:'₹' + ri(5000,50000), tenure: ri(12,60) + ' months', date: `${ri(1,28)}/0${ri(1,9)}/2024` }
+    },
+    keyPoints: [
+      `Customer ${doc.name} (${doc.custId}) runs a ${doc.shop} in ${doc.city}`,
+      `Aadhaar last 4 digits: ${aadhaar} | PAN: ${pan}`,
+      `Date of Birth: ${dob} | Age: ${age} years`,
+      `Document language: ${lang}`,
+      `Business type: ${doc.shop} | Estimated value: ₹${Math.round(valMin).toLocaleString('en-IN')} – ₹${Math.round(valMax).toLocaleString('en-IN')}`,
+      `PIN Code: ${pin}${pin.startsWith('9') ? ' ⚠ Starts with 9 — flagged' : ' ✓ Valid'}`,
+      `Total checklist: ${checks.length} rules | Passed: ${passed} | Failed: ${failed}`,
+      `Risk level: ${highRisk > 0 ? 'HIGH' : medRisk > 0 ? 'MEDIUM' : 'LOW'}`,
+      profile === 'issues' ? 'Multiple KYC discrepancies detected — requires senior review' : profile === 'minor' ? 'Minor inconsistencies noted — standard follow-up required' : 'All documents verified — file is clean',
+    ],
+    checkResults: checks,
+    photoAnalysis: {
+      businessType: doc.shop,
+      items: items.slice(0, ri(5,9)),
+      valuationMin: Math.round(valMin),
+      valuationMax: Math.round(valMax),
+      photoMatchResult: profile === 'issues' ? 'Face in business photo does not clearly match Aadhaar photo — further verification needed' : 'Face in business photo matches Aadhaar and PAN photographs',
+      notes: `${doc.shop} appears to be a ${profile==='clean'?'well-established':'functioning'} business. Inventory and fixtures visible in photo are consistent with declared business activity.`
+    },
+    summary: { totalChecks:checks.length, passed, failed, cannotVerify:cantVerify, highRisk, mediumRisk:medRisk, lowRisk, passRate },
+    auditObservations: observations,
+  };
 }
 
 function updateCustStatus(doc) {

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KYC Audit Automation Tool</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+</head>
+<body>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">⚖</div>
+      <div>
+        <div class="logo-title">AuditAI</div>
+        <div class="logo-sub">KYC Verification Suite</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-page="upload">
+        <span class="nav-icon">⬆</span> Upload Files
+      </a>
+      <a href="#" class="nav-item" data-page="losdata">
+        <span class="nav-icon">🗄</span> LOS / LMS Data
+      </a>
+      <a href="#" class="nav-item" data-page="dashboard">
+        <span class="nav-icon">📊</span> Dashboard
+      </a>
+      <a href="#" class="nav-item" data-page="reports">
+        <span class="nav-icon">📄</span> Reports
+      </a>
+      <a href="#" class="nav-item" data-page="settings">
+        <span class="nav-icon">⚙</span> Settings
+      </a>
+    </nav>
+    <div class="sidebar-stats" id="sidebarStats">
+      <div class="ss-row"><span>Files Audited</span><strong id="ssStat1">0</strong></div>
+      <div class="ss-row"><span>Checks Run</span><strong id="ssStat2">0</strong></div>
+      <div class="ss-row"><span>High Risk</span><strong id="ssStat3" class="red">0</strong></div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="topbar-title" id="pageTitle">Upload KYC Documents</div>
+      <div class="topbar-right">
+        <div class="api-status" id="apiStatus">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Enter API key in Settings</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- PAGE: UPLOAD -->
+    <section class="page active" id="page-upload">
+      <div class="page-inner">
+
+        <div class="info-banner">
+          <strong>How it works:</strong> Upload documents for one applicant file at a time. The AI reads every document (including scanned and vernacular), extracts all fields, cross-checks them, and produces a full audit report. Repeat for as many files as you need.
+        </div>
+
+        <div class="upload-header-row">
+          <div class="form-group" style="flex:1">
+            <label>Applicant File ID / Name</label>
+            <input type="text" id="fileNameInput" placeholder="e.g. LOAN-2024-001 or Ramesh Kumar" />
+          </div>
+          <button class="btn-primary" id="runBtn" onclick="runAudit()" disabled>
+            <span id="runBtnText">▶ Run AI Audit</span>
+          </button>
+        </div>
+
+        <div class="section-label">Applicant Documents</div>
+        <div class="upload-grid" id="uploadGrid">
+
+          <div class="upload-card" id="card-aadhaar" onclick="triggerUpload('aadhaar')">
+            <input type="file" id="file-aadhaar" accept="image/*,.pdf" onchange="fileSelected('aadhaar',this)" />
+            <div class="uc-icon">🪪</div>
+            <div class="uc-title">Aadhaar Card</div>
+            <div class="uc-sub" id="sub-aadhaar">JPG, PNG or PDF — applicant</div>
+            <div class="uc-badge pending" id="badge-aadhaar">Required</div>
+          </div>
+
+          <div class="upload-card" id="card-pan" onclick="triggerUpload('pan')">
+            <input type="file" id="file-pan" accept="image/*,.pdf" onchange="fileSelected('pan',this)" />
+            <div class="uc-icon">💳</div>
+            <div class="uc-title">PAN Card</div>
+            <div class="uc-sub" id="sub-pan">JPG, PNG or PDF — applicant</div>
+            <div class="uc-badge pending" id="badge-pan">Required</div>
+          </div>
+
+          <div class="upload-card" id="card-coapplaadhaar" onclick="triggerUpload('coapplaadhaar')">
+            <input type="file" id="file-coapplaadhaar" accept="image/*,.pdf" onchange="fileSelected('coapplaadhaar',this)" />
+            <div class="uc-icon">🪪</div>
+            <div class="uc-title">Co-Applicant Aadhaar</div>
+            <div class="uc-sub" id="sub-coapplaadhaar">JPG, PNG or PDF</div>
+            <div class="uc-badge optional" id="badge-coapplaadhaar">Optional</div>
+          </div>
+
+          <div class="upload-card" id="card-coapplpan" onclick="triggerUpload('coapplpan')">
+            <input type="file" id="file-coapplpan" accept="image/*,.pdf" onchange="fileSelected('coapplpan',this)" />
+            <div class="uc-icon">💳</div>
+            <div class="uc-title">Co-Applicant PAN</div>
+            <div class="uc-sub" id="sub-coapplpan">JPG, PNG or PDF</div>
+            <div class="uc-badge optional" id="badge-coapplpan">Optional</div>
+          </div>
+
+          <div class="upload-card" id="card-photo" onclick="triggerUpload('photo')">
+            <input type="file" id="file-photo" accept="image/*" onchange="fileSelected('photo',this)" />
+            <div class="uc-icon">📷</div>
+            <div class="uc-title">Business Visit Photo</div>
+            <div class="uc-sub" id="sub-photo">AI will identify business & estimate valuation</div>
+            <div class="uc-badge optional" id="badge-photo">Optional</div>
+          </div>
+
+          <div class="upload-card" id="card-agreement" onclick="triggerUpload('agreement')">
+            <input type="file" id="file-agreement" accept="image/*,.pdf" onchange="fileSelected('agreement',this)" />
+            <div class="uc-icon">📃</div>
+            <div class="uc-title">Loan Agreement / KFS</div>
+            <div class="uc-sub" id="sub-agreement">PDF preferred</div>
+            <div class="uc-badge optional" id="badge-agreement">Optional</div>
+          </div>
+
+          <div class="upload-card" id="card-gst" onclick="triggerUpload('gst')">
+            <input type="file" id="file-gst" accept="image/*,.pdf" onchange="fileSelected('gst',this)" />
+            <div class="uc-icon">🏪</div>
+            <div class="uc-title">GST / MSME / Udyam</div>
+            <div class="uc-sub" id="sub-gst">Business registration certificate</div>
+            <div class="uc-badge optional" id="badge-gst">Optional</div>
+          </div>
+
+          <div class="upload-card" id="card-bank" onclick="triggerUpload('bank')">
+            <input type="file" id="file-bank" accept="image/*,.pdf" onchange="fileSelected('bank',this)" />
+            <div class="uc-icon">🏦</div>
+            <div class="uc-title">Bank Statement</div>
+            <div class="uc-sub" id="sub-bank">Last 6 months preferred</div>
+            <div class="uc-badge optional" id="badge-bank">Optional</div>
+          </div>
+
+        </div>
+
+        <!-- Progress -->
+        <div class="progress-section" id="progressSection" style="display:none">
+          <div class="progress-label-row">
+            <span id="progressLabel">Initialising...</span>
+            <span id="progressPct">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill" style="width:0%"></div>
+          </div>
+          <div class="progress-steps" id="progressSteps"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- PAGE: LOS/LMS -->
+    <section class="page" id="page-losdata">
+      <div class="page-inner">
+        <div class="info-banner">
+          Enter available LOS / LMS data for the current file. Leave fields blank if unavailable — the AI will flag missing cross-checks as observations automatically.
+        </div>
+        <div class="los-grid">
+
+          <div class="los-card">
+            <div class="los-card-header">LOS — Borrower (Applicant)</div>
+            <div class="field-group">
+              <div class="fg-row"><label>Full Name</label><input id="los_name" placeholder="As per LOS system" /></div>
+              <div class="fg-row"><label>Date of Birth</label><input id="los_dob" placeholder="DD/MM/YYYY" /></div>
+              <div class="fg-row"><label>PAN Number</label><input id="los_pan" placeholder="ABCDE1234F" /></div>
+              <div class="fg-row"><label>Aadhaar Last 4 digits</label><input id="los_aadhaar4" placeholder="XXXX" maxlength="4" /></div>
+              <div class="fg-row"><label>Gender</label>
+                <select id="los_gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select>
+              </div>
+              <div class="fg-row"><label>Correspondence Address</label><input id="los_address" placeholder="Full address" /></div>
+              <div class="fg-row"><label>Permanent Address</label><input id="los_permaddress" placeholder="If different from correspondence" /></div>
+              <div class="fg-row"><label>PIN Code</label><input id="los_pin" placeholder="6-digit" maxlength="6" /></div>
+              <div class="fg-row"><label>Phone Number</label><input id="los_phone" placeholder="10-digit mobile" maxlength="10" /></div>
+            </div>
+          </div>
+
+          <div class="los-card">
+            <div class="los-card-header">LMS — Borrower (Applicant)</div>
+            <div class="field-group">
+              <div class="fg-row"><label>Full Name</label><input id="lms_name" placeholder="As per LMS system" /></div>
+              <div class="fg-row"><label>Date of Birth</label><input id="lms_dob" placeholder="DD/MM/YYYY" /></div>
+              <div class="fg-row"><label>PAN Number</label><input id="lms_pan" placeholder="ABCDE1234F" /></div>
+              <div class="fg-row"><label>Mobile Number</label><input id="lms_mobile" placeholder="10-digit" maxlength="10" /></div>
+              <div class="fg-row"><label>Gender</label>
+                <select id="lms_gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select>
+              </div>
+              <div class="fg-row"><label>Current Address</label><input id="lms_address" placeholder="Full address" /></div>
+              <div class="fg-row"><label>Permanent Address</label><input id="lms_permaddress" placeholder="Full address" /></div>
+              <div class="fg-row"><label>Risk Category</label>
+                <select id="lms_risk"><option value="">Select</option><option>Low</option><option>Medium</option><option>High</option></select>
+              </div>
+              <div class="fg-row"><label>Branch Name</label><input id="lms_branch" placeholder="Branch" /></div>
+              <div class="fg-row"><label>Annual Income</label><input id="lms_income" placeholder="In INR" /></div>
+            </div>
+          </div>
+
+          <div class="los-card">
+            <div class="los-card-header">LOS — Co-Applicant</div>
+            <div class="field-group">
+              <div class="fg-row"><label>Full Name</label><input id="los_coname" placeholder="Co-applicant full name" /></div>
+              <div class="fg-row"><label>PAN Number</label><input id="los_copan" placeholder="ABCDE1234F" /></div>
+              <div class="fg-row"><label>Date of Birth</label><input id="los_codob" placeholder="DD/MM/YYYY" /></div>
+              <div class="fg-row"><label>Gender</label>
+                <select id="los_cogender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select>
+              </div>
+              <div class="fg-row"><label>PIN Code</label><input id="los_copin" placeholder="6-digit" maxlength="6" /></div>
+              <div class="fg-row"><label>Correspondence Address</label><input id="los_coaddress" placeholder="Full address" /></div>
+            </div>
+          </div>
+
+          <div class="los-card">
+            <div class="los-card-header">LMS — Co-Applicant</div>
+            <div class="field-group">
+              <div class="fg-row"><label>Full Name</label><input id="lms_coname" placeholder="Co-applicant full name" /></div>
+              <div class="fg-row"><label>Date of Birth</label><input id="lms_codob" placeholder="DD/MM/YYYY" /></div>
+              <div class="fg-row"><label>Gender</label>
+                <select id="lms_cogender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select>
+              </div>
+              <div class="fg-row"><label>Current Address</label><input id="lms_coaddress" placeholder="Full address" /></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE: DASHBOARD -->
+    <section class="page" id="page-dashboard">
+      <div class="page-inner">
+
+        <div class="empty-state" id="dashEmpty">
+          <div class="es-icon">📋</div>
+          <div class="es-title">No audits yet</div>
+          <div class="es-sub">Run your first KYC audit from the Upload Files tab to see the dashboard.</div>
+        </div>
+
+        <div id="dashContent" style="display:none">
+          <div class="metrics-row" id="metricsRow"></div>
+
+          <div class="chart-row">
+            <div class="chart-box">
+              <div class="chart-box-title">Checklist Results Per File</div>
+              <div style="position:relative;height:260px"><canvas id="passFailChart" role="img" aria-label="Pass vs fail per file"></canvas></div>
+            </div>
+            <div class="chart-box">
+              <div class="chart-box-title">Risk Distribution</div>
+              <div style="position:relative;height:260px"><canvas id="riskChart" role="img" aria-label="Risk level distribution"></canvas></div>
+            </div>
+          </div>
+
+          <div class="chart-box" style="margin-top:1rem">
+            <div class="chart-box-title">Pass Rate Trend Across Files</div>
+            <div style="position:relative;height:200px"><canvas id="trendChart" role="img" aria-label="Pass rate trend"></canvas></div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- PAGE: REPORTS -->
+    <section class="page" id="page-reports">
+      <div class="page-inner">
+
+        <div class="empty-state" id="reportsEmpty">
+          <div class="es-icon">📄</div>
+          <div class="es-title">No reports generated yet</div>
+          <div class="es-sub">Audit results will appear here as individual file reports and a master report.</div>
+        </div>
+
+        <div id="reportsContent" style="display:none">
+          <div class="reports-toolbar">
+            <button class="btn-primary" onclick="downloadMasterReport()">⬇ Download Master Report (.txt)</button>
+            <button class="btn-outline" onclick="downloadMasterCSV()">⬇ Export as CSV</button>
+          </div>
+          <div class="reports-list" id="reportsList"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- PAGE: SETTINGS -->
+    <section class="page" id="page-settings">
+      <div class="page-inner">
+        <div class="settings-card">
+          <div class="settings-title">Anthropic API Key</div>
+          <div class="settings-desc">This tool uses Claude AI to read documents and run the KYC checklist. You need a free Anthropic API key. <a href="https://console.anthropic.com/" target="_blank">Get your key here →</a></div>
+          <div class="fg-row" style="margin-top:1rem">
+            <label>API Key</label>
+            <input type="password" id="apiKeyInput" placeholder="sk-ant-api..." />
+          </div>
+          <button class="btn-primary" style="margin-top:1rem" onclick="saveApiKey()">Save API Key</button>
+          <div id="apiSaveMsg" style="display:none; color:#4CAF50; margin-top:8px; font-size:13px;">✓ API key saved for this session.</div>
+        </div>
+
+        <div class="settings-card" style="margin-top:1rem">
+          <div class="settings-title">Risk Threshold Settings</div>
+          <div class="settings-desc">Adjust how risk levels are determined based on failed checkpoints.</div>
+          <div class="fg-row"><label>High Risk — fail rate above (%)</label><input type="number" id="threshHigh" value="50" min="1" max="99" /></div>
+          <div class="fg-row"><label>Medium Risk — fail rate above (%)</label><input type="number" id="threshMed" value="25" min="1" max="99" /></div>
+          <button class="btn-outline" style="margin-top:1rem" onclick="saveThresholds()">Save Thresholds</button>
+        </div>
+
+        <div class="settings-card" style="margin-top:1rem">
+          <div class="settings-title">About</div>
+          <div class="settings-desc">
+            <strong>KYC Audit Automation Tool</strong> — Built for internal audit teams to automate KYC verification across Aadhaar, PAN, LOS, LMS, agreements, and business photos.<br><br>
+            All document processing is done via the Anthropic Claude API. No documents are stored anywhere — everything runs in your browser.
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

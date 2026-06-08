@@ -45,12 +45,11 @@ function getDefaultChecklist() {
 
 /* ── NAV ── */
 function navTo(page) {
-  ['input','checklist','dashboard','reports'].forEach(p => {
+  ['input','dashboard','reports'].forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = p === page ? 'block' : 'none';
   });
   document.querySelectorAll('.seg button[data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
-  if (page === 'checklist') renderRules();
   if (page === 'dashboard') renderDashboard();
   if (page === 'reports') renderReports();
 }
@@ -379,7 +378,10 @@ function guessDocLabel(name) {
 
 /* ── RUN ALL ── */
 async function runAll() {
-  if (!S.apiKey) { showRunError('Please enter your Anthropic API key in Settings first.'); return; }
+  if (!S.apiKey && S.docs.some(d=>!d.isDemo)) {
+    showRunError('Please enter your Anthropic API key in Settings first (not needed for demo files).');
+    return;
+  }
   if (!S.docs.length) { showRunError('Upload a ZIP or load demo files first.'); return; }
   hideRunError();
   const concurrency = Math.max(1, Math.min(5, parseInt(document.getElementById('concurrency').value)||2));

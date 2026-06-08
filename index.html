@@ -29,7 +29,6 @@
       <button class="on" data-page="input" onclick="navTo('input')">Upload &amp; Configure</button>
       <button data-page="dashboard" onclick="navTo('dashboard')" id="navDash" disabled>Dashboard</button>
       <button data-page="reports" onclick="navTo('reports')" id="navReports" disabled>Reports</button>
-      <button data-page="checklist" onclick="navTo('checklist')">⚙ Checklist Rules</button>
     </nav>
     <div class="topbar-right">
       <div class="conf-badge" id="apiBadge"><span class="status-dot red"></span>No API key</div>
@@ -130,62 +129,60 @@
       </div>
 
     </div>
-  </main>
 
-  <!-- PAGE: CHECKLIST -->
-  <main class="page" id="page-checklist" style="display:none">
-    <div class="page-head">
-      <div><h1>Checklist Rules</h1><p class="lede">Define the rules and checkpoints the AI will use when auditing every file. Add rules one by one using the form, or paste multiple rules as plain text.</p></div>
-      <div style="display:flex;gap:8px">
-        <button class="ghost-btn" onclick="resetChecklist()">Reset to defaults</button>
-        <button class="ghost-btn" onclick="exportChecklist()">Export rules</button>
-        <button class="primary-btn" onclick="importChecklistClick()">Import rules</button>
-        <input type="file" id="checklistImport" accept=".json,.txt" onchange="importChecklist(this.files[0])" style="display:none" />
-      </div>
-    </div>
-
-    <div class="checklist-layout">
-
-      <!-- ADD RULE FORM -->
-      <div class="card io-card">
-        <div class="io-card-eyebrow">Add a single rule</div>
-        <h2 style="font-size:16px;font-weight:600;margin:4px 0 14px">Rule Builder</h2>
-        <div class="fg" style="margin-bottom:10px"><label>Rule ID (e.g. A1, C3, CUSTOM1)</label><input class="text-input" id="ruleId" placeholder="e.g. A18" /></div>
-        <div class="fg" style="margin-bottom:10px"><label>Rule Description</label><input class="text-input" id="ruleDesc" placeholder="e.g. Is the address PIN code valid?" /></div>
-        <div class="fg" style="margin-bottom:10px"><label>Category</label>
-          <select class="text-input" id="ruleCat">
-            <option value="Applicant KYC">Applicant KYC</option>
-            <option value="Co-Applicant KYC">Co-Applicant KYC</option>
-            <option value="LOS/LMS Cross-check">LOS/LMS Cross-check</option>
-            <option value="Business Verification">Business Verification</option>
-            <option value="Photo Verification">Photo Verification</option>
-            <option value="Custom">Custom</option>
-          </select>
+    <!-- CHECKLIST RULES — embedded inside Upload page -->
+    <div style="margin-top:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <div>
+          <div class="eyebrow" style="margin-bottom:4px">Step 4 — Audit Rules</div>
+          <h2 style="font-size:20px;font-weight:600;margin:0;letter-spacing:-.01em">Checklist Rules</h2>
+          <p class="lede" style="margin-top:4px">These are the rules the AI will check for every file. Add, edit or remove rules before running the audit.</p>
         </div>
-        <div class="fg" style="margin-bottom:14px"><label>Risk Level if Failed</label>
-          <select class="text-input" id="ruleRisk">
-            <option value="HIGH">HIGH — Identity/compliance critical</option>
-            <option value="MEDIUM" selected>MEDIUM — Data inconsistency</option>
-            <option value="LOW">LOW — Minor/optional field</option>
-          </select>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ghost-btn" onclick="resetChecklist()">Reset to defaults</button>
+          <button class="ghost-btn" onclick="exportChecklist()">Export rules</button>
+          <button class="ghost-btn" onclick="importChecklistClick()">Import rules</button>
+          <input type="file" id="checklistImport" accept=".json,.txt" onchange="importChecklist(this.files[0])" style="display:none" />
         </div>
-        <button class="primary-btn" style="width:100%" onclick="addRule()">+ Add Rule</button>
       </div>
 
-      <!-- BULK TEXT ADD -->
-      <div class="card io-card">
-        <div class="io-card-eyebrow">Add multiple rules at once</div>
-        <h2 style="font-size:16px;font-weight:600;margin:4px 0 6px">Paste Rules as Text</h2>
-        <p class="lede" style="margin-bottom:10px">One rule per line. Format: <code>ID | Description | Category | Risk</code><br>Example: <code>A18 | Is nominee details filled? | Applicant KYC | LOW</code></p>
-        <textarea class="text-input" id="bulkRulesText" rows="8" placeholder="A18 | Is nominee details filled? | Applicant KYC | LOW&#10;C11 | Is co-applicant income verified? | Co-Applicant KYC | MEDIUM&#10;CUSTOM1 | Is property document attached? | Custom | HIGH" style="resize:vertical;font-family:monospace;font-size:12px"></textarea>
-        <button class="primary-btn" style="width:100%;margin-top:10px" onclick="addBulkRules()">+ Add All Rules</button>
-      </div>
+      <div class="checklist-layout">
+        <div class="card io-card">
+          <div class="io-card-eyebrow">Add a single rule</div>
+          <h3 style="font-size:15px;font-weight:600;margin:4px 0 12px">Rule Builder</h3>
+          <div class="fg" style="margin-bottom:10px"><label>Rule ID (e.g. A18, CUSTOM1)</label><input class="text-input" id="ruleId" placeholder="e.g. A18" /></div>
+          <div class="fg" style="margin-bottom:10px"><label>Rule Description</label><input class="text-input" id="ruleDesc" placeholder="e.g. Is the address PIN code valid?" /></div>
+          <div class="fg" style="margin-bottom:10px"><label>Category</label>
+            <select class="text-input" id="ruleCat">
+              <option value="Applicant KYC">Applicant KYC</option>
+              <option value="Co-Applicant KYC">Co-Applicant KYC</option>
+              <option value="LOS/LMS Cross-check">LOS/LMS Cross-check</option>
+              <option value="Business Verification">Business Verification</option>
+              <option value="Photo Verification">Photo Verification</option>
+              <option value="Custom">Custom</option>
+            </select>
+          </div>
+          <div class="fg" style="margin-bottom:14px"><label>Risk Level if Failed</label>
+            <select class="text-input" id="ruleRisk">
+              <option value="HIGH">HIGH — Identity/compliance critical</option>
+              <option value="MEDIUM" selected>MEDIUM — Data inconsistency</option>
+              <option value="LOW">LOW — Minor/optional field</option>
+            </select>
+          </div>
+          <button class="primary-btn" style="width:100%" onclick="addRule()">+ Add Rule</button>
+        </div>
 
-      <!-- CURRENT RULES LIST -->
-      <div class="card" style="grid-column:1/-1;padding:0;overflow:hidden">
-        <div class="table-head">
-          <div><h2>Active Rules <span style="font-size:13px;font-weight:400;color:var(--muted)" id="ruleCount"></span></h2></div>
-          <div style="display:flex;gap:8px">
+        <div class="card io-card">
+          <div class="io-card-eyebrow">Add multiple rules at once</div>
+          <h3 style="font-size:15px;font-weight:600;margin:4px 0 6px">Paste Rules as Text</h3>
+          <p class="lede" style="margin-bottom:10px">One rule per line. Format: <code>ID | Description | Category | Risk</code><br>Example: <code>A18 | Is nominee details filled? | Applicant KYC | LOW</code></p>
+          <textarea class="text-input" id="bulkRulesText" rows="7" placeholder="A18 | Is nominee details filled? | Applicant KYC | LOW&#10;C11 | Is co-applicant income verified? | Co-Applicant KYC | MEDIUM&#10;CUSTOM1 | Is property document attached? | Custom | HIGH" style="resize:vertical;font-family:monospace;font-size:12px"></textarea>
+          <button class="primary-btn" style="width:100%;margin-top:10px" onclick="addBulkRules()">+ Add All Rules</button>
+        </div>
+
+        <div class="card" style="grid-column:1/-1;padding:0;overflow:hidden">
+          <div class="table-head">
+            <div><h2 style="font-size:16px;margin:0 0 3px">Active Rules <span style="font-size:13px;font-weight:400;color:var(--muted)" id="ruleCount"></span></h2><div class="muted small">These rules will be applied to every file during audit</div></div>
             <div class="filter-seg">
               <button class="on" data-rcat="all" onclick="setRuleCat('all',this)">All</button>
               <button data-rcat="Applicant KYC" onclick="setRuleCat('Applicant KYC',this)">Applicant</button>
@@ -194,12 +191,15 @@
               <button data-rcat="Custom" onclick="setRuleCat('Custom',this)">Custom</button>
             </div>
           </div>
+          <div id="rulesList"></div>
         </div>
-        <div id="rulesList"></div>
       </div>
-
     </div>
+
   </main>
+
+  <!-- PAGE: CHECKLIST (kept for nav compatibility but hidden) -->
+  <main class="page" id="page-checklist" style="display:none"></main>
 
   <!-- PAGE: DASHBOARD -->
   <main class="page" id="page-dashboard" style="display:none">
